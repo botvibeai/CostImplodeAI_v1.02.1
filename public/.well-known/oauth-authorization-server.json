@@ -1,0 +1,31 @@
+{
+  "issuer": "https://costimplodeai.com",
+  "service_documentation": "https://costimplodeai.com/auth.md",
+  "grant_types_supported": [
+    "authorization_code"
+  ],
+  "response_types_supported": [
+    "code"
+  ],
+  "scopes_supported": [
+    "openid",
+    "member:basic:read",
+    "arbitrage:execute"
+  ],
+  "jwks_uri": "https://costimplodeai.com/.well-known/jwks.json",
+  "registration_endpoint": "https://costimplodeai.com/auth.md",
+  "agent_auth": {
+    "skill": "https://costimplodeai.com/.well-known/agent-skills/ask-costimplodeai.SKILL.md",
+    "register_uri": "mailto:support@costimplodeai.com",
+    "identity_types_supported": [
+      "whop_oauth",
+      "byok_cometapi_key"
+    ],
+    "verified_email": {
+      "credential_types_supported": [
+        "api_key_request"
+      ],
+      "claim_uri": "https://costimplodeai.com/auth.md#registration"
+    }
+  }
+}

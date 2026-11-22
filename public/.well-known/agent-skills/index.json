@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
+  "skills": [
+    {
+      "name": "ask-costimplodeai",
+      "type": "skill-md",
+      "description": "Ask questions about CostImplodeAI autonomous arbitrage gateway, CometAPI.com sole-supplier BYOK credits, Whop membership, key rotation, and dynamic savings optimization.",
+      "url": "https://costimplodeai.com/.well-known/agent-skills/ask-costimplodeai.SKILL.md",
+      "digest": "sha256:c93b0a9d92e1924691b4424e796705c5bbdfcec5c562d8336402f0849b39f565"
+    },
+    {
+      "name": "costimplodeai-api-discovery",
+      "type": "skill-md",
+      "description": "Discover CostImplodeAI public API endpoints, key management documentation, Whop auth/billing status, and MCP metadata.",
+      "url": "https://costimplodeai.com/.well-known/agent-skills/costimplodeai-api-discovery.SKILL.md",
+      "digest": "sha256:35a0dc99f116e6c713466ac73044e7e97f99dd94af5140e6ae800de2db93132b"
+    }
+  ]
+}

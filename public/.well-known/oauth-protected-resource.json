@@ -1,0 +1,15 @@
+{
+  "resource": "https://costimplodeai.com",
+  "authorization_servers": [
+    "https://costimplodeai.com"
+  ],
+  "scopes_supported": [
+    "public:read",
+    "arbitrage:execute"
+  ],
+  "bearer_methods_supported": [
+    "header"
+  ],
+  "resource_documentation": "https://costimplodeai.com/auth.md",
+  "prelaunch": false
+}

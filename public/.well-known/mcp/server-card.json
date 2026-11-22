@@ -1,0 +1,25 @@
+{
+  "serverInfo": {
+    "name": "CostImplodeAI Public Knowledge MCP",
+    "version": "2.5.0"
+  },
+  "transport": {
+    "type": "streamable-http",
+    "endpoint": "https://costimplodeai.com/mcp"
+  },
+  "capabilities": {
+    "tools": [
+      {
+        "name": "search",
+        "description": "Answer questions using CostImplodeAI public product, API, CometAPI.com sole-supplier BYOK credits, Whop auth/billing, and key rotation docs."
+      }
+    ],
+    "resources": [],
+    "prompts": []
+  },
+  "upstream": {
+    "ai_supplier": "CometAPI.com (BYOK Funded Credits Required)",
+    "auth_and_billing": "Whop OAuth 2.1 + Whop Checkout",
+    "status": "operational"
+  }
+}

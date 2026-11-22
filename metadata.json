@@ -1,0 +1,8 @@
+{
+  "name": "CostImplodeAI - BYOK AI Gateway for Lower LLM Costs",
+  "description": "CostImplodeAI is a BYOK AI gateway for routing model requests across provider paths with founder setup, OpenAI-compatible access, and lower eligible routing cost.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,197 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "CostImplodeAI Autonomous AI Arbitrage Gateway API",
+    "version": "2.5.0",
+    "description": "100% BYOK AI arbitrage gateway powered by your funded CometAPI.com account, with Whop OAuth 2.1 + Checkout billing and FIPS 140-3 HSM envelope encryption."
+  },
+  "servers": [
+    {
+      "url": "https://costimplodeai.com"
+    }
+  ],
+  "paths": {
+    "/v1/chat/completions": {
+      "post": {
+        "summary": "Execute dynamic model arbitrage completion through CometAPI.com with up to 63.3% savings",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "model": {
+                    "type": "string",
+                    "default": "auto",
+                    "description": "Target CometAPI model alias or 'auto' for autonomous arbitrage"
+                  },
+                  "messages": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    },
+                    "description": "Standard OpenAI conversation messages"
+                  },
+                  "temperature": {
+                    "type": "number",
+                    "default": 0.7
+                  },
+                  "stream": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                },
+                "required": [
+                  "messages"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OpenAI-compatible chat completion response with audited savings headers (x-ci-savings-pct, x-ci-routed-provider, x-ci-security)"
+          },
+          "502": {
+            "description": "Upstream CometAPI execution error"
+          }
+        }
+      }
+    },
+    "/api/v1/keys": {
+      "get": {
+        "summary": "List active CostImplodeAI gateway keys with real-time RPM throughput and spend tracking",
+        "responses": {
+          "200": {
+            "description": "Array of registered gateway keys"
+          }
+        }
+      },
+      "post": {
+        "summary": "Generate a new CostImplodeAI Gateway Key (cia_live_... / cia_test_...)",
+        "responses": {
+          "201": {
+            "description": "Returns created key record with one-time raw token disclosure"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Revoke a CostImplodeAI Gateway Key immediately",
+        "responses": {
+          "200": {
+            "description": "Key revoked successfully"
+          }
+        }
+      }
+    },
+    "/api/v1/keys/rotate": {
+      "post": {
+        "summary": "Seamlessly rotate a CostImplodeAI Gateway API Key maintaining existing settings and limits",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "keyId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "keyId"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Key rotated with new token and preserved spend/RPM limits"
+          }
+        }
+      }
+    },
+    "/api/v1/keys/usage": {
+      "get": {
+        "summary": "Real-time request per minute (RPM) and usage statistics per key and global cluster",
+        "responses": {
+          "200": {
+            "description": "Live RPM throughput, quota metrics, and cumulative savings"
+          }
+        }
+      }
+    },
+    "/api/v1/vault/test-connection": {
+      "post": {
+        "summary": "Validate and ping connectivity for your funded CometAPI.com BYOK key",
+        "responses": {
+          "200": {
+            "description": "CometAPI key syntax, SHA-256 fingerprint, and live reachability verification"
+          }
+        }
+      }
+    },
+    "/api/v1/vault/sync": {
+      "post": {
+        "summary": "Zero-knowledge storage of PBKDF2 + AES-GCM-256 client-encrypted CometAPI key ciphertext",
+        "responses": {
+          "200": {
+            "description": "Encrypted vault envelope sealed successfully"
+          }
+        }
+      }
+    },
+    "/api/auth/whop/url": {
+      "get": {
+        "summary": "Generate PKCE-protected Whop OAuth 2.1 authorization URL for developer sign-in",
+        "responses": {
+          "200": {
+            "description": "Whop OAuth configuration status and authorize URL"
+          }
+        }
+      }
+    },
+    "/api/billing/whop-plans": {
+      "get": {
+        "summary": "Retrieve CostImplodeAI subscription plans and Whop Checkout links",
+        "responses": {
+          "200": {
+            "description": "Plans and Whop Checkout metadata"
+          }
+        }
+      }
+    },
+    "/v1/dashboard/telemetry": {
+      "get": {
+        "summary": "Get live telemetry metrics and trust convergence statistics",
+        "responses": {
+          "200": {
+            "description": "Live telemetry data"
+          }
+        }
+      }
+    },
+    "/api/token-tax/audit": {
+      "post": {
+        "summary": "Calculate multilingual token tax mitigation metrics (Feature Coming Soon in Q4 2026)",
+        "responses": {
+          "200": {
+            "description": "Audited token tax savings breakdown"
+          }
+        }
+      }
+    },
+    "/api/status": {
+      "get": {
+        "summary": "Public gateway, Whop OAuth/billing, and CometAPI supplier status",
+        "responses": {
+          "200": {
+            "description": "Current infrastructure and supplier health status"
+          }
+        }
+      }
+    }
+  }
+}

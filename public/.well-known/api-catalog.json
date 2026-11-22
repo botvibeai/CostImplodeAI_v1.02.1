@@ -1,0 +1,67 @@
+{
+  "linkset": [
+    {
+      "anchor": "https://costimplodeai.com/api/status",
+      "service-desc": [
+        {
+          "href": "https://costimplodeai.com/openapi.json",
+          "type": "application/openapi+json"
+        }
+      ],
+      "service-doc": [
+        {
+          "href": "https://costimplodeai.com/docs/api",
+          "type": "text/html"
+        }
+      ],
+      "status": [
+        {
+          "href": "https://costimplodeai.com/api/status",
+          "type": "application/json"
+        }
+      ]
+    },
+    {
+      "anchor": "https://costimplodeai.com/v1/chat/completions",
+      "service-desc": [
+        {
+          "href": "https://costimplodeai.com/openapi.json",
+          "type": "application/openapi+json"
+        }
+      ],
+      "service-doc": [
+        {
+          "href": "https://costimplodeai.com/docs/keys",
+          "type": "text/html"
+        }
+      ],
+      "status": [
+        {
+          "href": "https://costimplodeai.com/api/status",
+          "type": "application/json"
+        }
+      ]
+    },
+    {
+      "anchor": "https://costimplodeai.com/mcp",
+      "service-desc": [
+        {
+          "href": "https://costimplodeai.com/.well-known/mcp/server-card.json",
+          "type": "application/json"
+        }
+      ],
+      "service-doc": [
+        {
+          "href": "https://costimplodeai.com/docs/api",
+          "type": "text/html"
+        }
+      ],
+      "status": [
+        {
+          "href": "https://costimplodeai.com/api/status",
+          "type": "application/json"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+# CostImplodeAI
+
+Autonomous 100% BYOK AI model arbitrage gateway on Google Cloud Run powered solely by CometAPI.com with Whop OAuth & Checkout and up to 63.3% audited savings.
+
+## Primary Pages & Resources
+
+- [Homepage & Live Dashboard](https://costimplodeai.com/)
+- [CometAPI.com Credits & Partner Portal (10% Bonus)](https://www.cometapi.com/?ref=gcp)
+- [BYOK Setup Guide](https://costimplodeai.com/docs/byok)
+- [API Key Generation, Rotation & Security Guide](https://costimplodeai.com/docs/keys)
+- [Developer API Reference](https://costimplodeai.com/docs/api)
+- [Compliance Whitepaper](https://costimplodeai.com/compliance.html)
+- [Privacy Policy](https://costimplodeai.com/privacy.html)
+- [Terms of Service](https://costimplodeai.com/terms.html)
+- [OpenAPI Specification](https://costimplodeai.com/openapi.json)
+- [Auth Instructions](https://costimplodeai.com/auth.md)
+- [XML Sitemap](https://costimplodeai.com/sitemap.xml)

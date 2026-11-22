@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Enterprise Security &amp; Compliance Whitepaper - CostImplodeAI</title>
+  <meta name="description" content="CostImplodeAI Enterprise Security Whitepaper. FIPS 140-3 Level 3 HSMs, client-side PBKDF2 + AES-GCM-256 BYOK encryption for CometAPI keys, and SOC 2 Type II posture." />
+  <link rel="canonical" href="https://costimplodeai.com/compliance.html" />
+  <style>
+    
+    :root {
+      --orange: #ff1a0a;
+      --orange-light: #ff3b24;
+      --orange-dim: rgba(255,26,10,0.12);
+      --orange-border: rgba(255,26,10,0.32);
+      --cyan: #00b4d8;
+      --cyan-dim: rgba(0,180,216,0.15);
+      --cyan-border: rgba(0,180,216,0.35);
+      --bg: #030712;
+      --surface: #0f172a;
+      --card: #0d1117;
+      --card2: #111827;
+      --border: #1f2937;
+      --border2: #374151;
+      --text: #f9fafb;
+      --muted: #9ca3af;
+      --dim: #6b7280;
+      --green: #4ade80;
+      --blue: #60a5fa;
+      --purple: #c084fc;
+      --gold: #fbbf24;
+      --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      line-height: 1.65;
+      overflow-x: hidden;
+      font-size: 15px;
+    }
+    a { text-decoration: none; color: inherit; }
+
+    /* NAV */
+    nav {
+      position: sticky;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      backdrop-filter: blur(14px);
+      background: rgba(3,7,18,0.94);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+    .logo-mark-img {
+      width: 38px;
+      height: 38px;
+      flex-shrink: 0;
+      object-fit: cover;
+      border-radius: 8px;
+    }
+    .logo-wordmark {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      color: var(--orange);
+      font-size: 15px;
+      line-height: 0.95;
+      letter-spacing: 0.08em;
+      font-weight: 950;
+      text-transform: uppercase;
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+    }
+    .nav-links a {
+      color: var(--muted);
+      font-size: 13.5px;
+      font-weight: 600;
+      transition: color .15s;
+    }
+    .nav-links a:hover, .nav-links a.active {
+      color: var(--text);
+    }
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .nav-comet {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--cyan-dim);
+      border: 1px solid var(--cyan-border);
+      color: #38bdf8;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      transition: all .15s;
+    }
+    .nav-comet:hover {
+      background: rgba(0,180,216,0.25);
+      transform: translateY(-1px);
+    }
+    .btn-return-home {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--orange);
+      color: #fff;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      transition: all .15s;
+      white-space: nowrap;
+    }
+    .btn-return-home:hover {
+      background: var(--orange-light);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(255,26,10,0.3);
+    }
+
+    /* BADGES */
+    .badge-fips {
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: var(--green);
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* LAYOUT */
+    .page-wrapper {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 32px 24px 80px;
+    }
+    .breadcrumbs {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--dim);
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+    .breadcrumbs a {
+      color: var(--muted);
+      transition: color .15s;
+    }
+    .breadcrumbs a:hover {
+      color: var(--orange-light);
+    }
+    .breadcrumbs span.sep {
+      color: var(--border2);
+    }
+    .breadcrumbs span.current {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    /* HERO BANNER */
+    .page-hero {
+      background: linear-gradient(180deg, rgba(15,23,42,0.85) 0%, rgba(13,17,23,0.65) 100%);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 36px 32px;
+      margin-bottom: 36px;
+      position: relative;
+      overflow: hidden;
+    }
+    .page-hero::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--orange), var(--cyan), transparent);
+    }
+    .page-hero h1 {
+      font-size: 32px;
+      font-weight: 900;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+      color: var(--text);
+    }
+    .page-hero p {
+      font-size: 16px;
+      color: var(--muted);
+      max-width: 840px;
+      line-height: 1.65;
+    }
+    .meta-bar {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-top: 20px;
+      font-size: 12px;
+      color: var(--dim);
+      padding-top: 16px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+
+    /* TWO-COLUMN CONTENT */
+    .content-grid {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 40px;
+      align-items: start;
+    }
+    .sticky-toc {
+      position: sticky;
+      top: 80px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .toc-title {
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--dim);
+      margin-bottom: 12px;
+    }
+    .toc-menu {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .toc-menu a {
+      display: block;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      color: var(--muted);
+      transition: all .15s;
+    }
+    .toc-menu a:hover {
+      color: var(--text);
+      background: rgba(255,255,255,0.04);
+      padding-left: 14px;
+    }
+
+    /* ARTICLE SECTIONS */
+    .article-body section {
+      margin-bottom: 44px;
+      scroll-margin-top: 90px;
+    }
+    .article-body h2 {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .article-body h3 {
+      font-size: 16px;
+      font-weight: 700;
+      color: #e2e8f0;
+      margin: 20px 0 10px;
+    }
+    .article-body p {
+      color: #cbd5e1;
+      margin-bottom: 14px;
+      line-height: 1.7;
+    }
+    .article-body ul, .article-body ol {
+      margin-left: 20px;
+      margin-bottom: 16px;
+      color: #cbd5e1;
+    }
+    .article-body li {
+      margin-bottom: 8px;
+      line-height: 1.6;
+    }
+
+    /* CARDS & CALLOUTS */
+    .callout {
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin: 18px 0;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .callout-orange {
+      background: rgba(255,26,10,0.08);
+      border: 1px solid var(--orange-border);
+      color: #fed7aa;
+    }
+    .callout-cyan {
+      background: rgba(0,180,216,0.08);
+      border: 1px solid var(--cyan-border);
+      color: #bae6fd;
+    }
+    .callout-green {
+      background: rgba(74,222,128,0.08);
+      border: 1px solid rgba(74,222,128,0.25);
+      color: #bbf7d0;
+    }
+    .callout-gold {
+      background: rgba(251,191,36,0.08);
+      border: 1px solid rgba(251,191,36,0.3);
+      color: #fef3c7;
+    }
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin: 20px 0;
+    }
+    .feature-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      transition: all .2s;
+    }
+    .feature-card:hover {
+      border-color: var(--border2);
+      transform: translateY(-2px);
+    }
+    .feature-card h4 {
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .feature-card p {
+      font-size: 13px;
+      color: var(--muted);
+      margin: 0;
+      line-height: 1.55;
+    }
+
+    /* CODE BLOCKS */
+    code {
+      font-family: var(--font-mono);
+      background: #0f172a;
+      border: 1px solid var(--border);
+      color: #ff6b4a;
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 13px;
+    }
+    pre {
+      background: #070b14;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.6;
+      margin: 16px 0;
+      color: #e2e8f0;
+      position: relative;
+    }
+    pre code {
+      background: transparent;
+      border: none;
+      padding: 0;
+      color: inherit;
+    }
+    .code-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-bottom: none;
+      border-radius: 10px 10px 0 0;
+      padding: 8px 14px;
+      font-size: 11px;
+      color: var(--dim);
+      font-family: var(--font-mono);
+    }
+    .code-head + pre {
+      margin-top: 0;
+      border-radius: 0 0 10px 10px;
+    }
+    .copy-btn {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--border2);
+      color: var(--muted);
+      padding: 3px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      transition: all .15s;
+    }
+    .copy-btn:hover {
+      background: rgba(255,255,255,0.12);
+      color: var(--text);
+    }
+
+    /* TABLES */
+    .spec-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+      font-size: 13px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .spec-table th, .spec-table td {
+      padding: 12px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    .spec-table th {
+      background: #0b0f19;
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .spec-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    /* FOOTER */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 50px 24px 30px;
+      background: #02050e;
+      margin-top: 60px;
+    }
+    .footer-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .footer-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      gap: 40px;
+      margin-bottom: 40px;
+    }
+    .footer-brand p {
+      color: var(--dim);
+      font-size: 13px;
+      margin-top: 12px;
+      line-height: 1.6;
+      max-width: 320px;
+    }
+    .footer-col h4 {
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 16px;
+    }
+    .footer-col a {
+      display: block;
+      color: var(--dim);
+      font-size: 13px;
+      margin-bottom: 8px;
+      transition: color .15s;
+    }
+    .footer-col a:hover {
+      color: var(--text);
+    }
+    .footer-bottom {
+      border-top: 1px solid rgba(255,255,255,0.06);
+      padding-top: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+      font-size: 12px;
+      color: var(--dim);
+    }
+
+    @media (max-width: 900px) {
+      .content-grid { grid-template-columns: 1fr; }
+      .sticky-toc { display: none; }
+      .footer-grid { grid-template-columns: 1fr 1fr; }
+      .nav-links { display: none; }
+    }
+    @media (max-width: 600px) {
+      .footer-grid { grid-template-columns: 1fr; }
+    }
+  
+  </style>
+</head>
+<body>
+
+
+<nav>
+  <div class="nav-inner">
+    <a href="/" class="logo" aria-label="CostImplodeAI home">
+      <img class="logo-mark-img" src="/costimplode-mark.png" alt="CostImplodeAI" />
+      <span class="logo-wordmark"><span>COST</span><span>IMPLODEAI</span></span>
+    </a>
+    <div class="nav-links">
+      <a href="/#how-it-works">Architecture</a>
+      <a href="/#simulator">Simulator</a>
+      <a href="/docs/byok" class="" style="color:var(--cyan);font-weight:700;">BYOK Guide</a>
+      <a href="/docs/keys" class="" style="color:var(--orange-light);font-weight:700;">Keys &amp; Rotation</a>
+      <a href="/docs/api" class="">API Docs</a>
+      <a href="/compliance.html" class="active">Compliance</a>
+      <a href="/#pricing">Whop Plans</a>
+    </div>
+    <div class="nav-right">
+      <a href="https://www.cometapi.com/?ref=gcp" target="_blank" rel="noopener noreferrer" class="nav-comet" title="Buy credits on CometAPI.com">
+        <img src="/cometapi-logo.svg" alt="CometAPI" style="height:16px;vertical-align:middle;" />
+        Buy Credits (10% Bonus)
+      </a>
+      <a href="/" class="btn-return-home" title="Return to interactive live homepage">
+        &larr; Main Site
+      </a>
+    </div>
+  </div>
+</nav>
+
+
+<div class="page-wrapper">
+  <div class="breadcrumbs">
+    <a href="/">Home</a>
+    <span class="sep">/</span>
+    <span class="current">Enterprise Compliance</span>
+  </div>
+
+  <div class="page-hero">
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+      <span class="badge-fips">🛡️ FIPS 140-3 Level 3</span>
+      <span class="badge-fips" style="background:rgba(251,191,36,0.12);color:var(--gold);border-color:rgba(251,191,36,0.3);">SOC 2 Type II Ready</span>
+      <span class="badge-fips" style="background:rgba(56,189,248,0.12);color:var(--cyan);border-color:var(--cyan-border);">HIPAA BAA Ready</span>
+    </div>
+    <h1>Enterprise Security, Cryptography &amp; Compliance Whitepaper</h1>
+    <p>
+      Technical overview of CostImplodeAI's zero-knowledge cryptographic architecture, volatile container execution, Whop OAuth PKCE session hardening, and single-supplier CometAPI BYOK isolation.
+    </p>
+    <div class="meta-bar">
+      <span><strong>Standards:</strong> NIST SP 800-38D, FIPS 140-3 Level 3 HSM</span>
+      <span>&bull;</span>
+      <span><strong>Client Cipher:</strong> PBKDF2-SHA256 + AES-GCM-256 (96-bit unique IV)</span>
+      <span>&bull;</span>
+      <span><strong>Docs:</strong> <a href="/docs/keys" style="color:var(--orange-light);text-decoration:underline;">Key Lifecycle &amp; Rotation &rarr;</a></span>
+    </div>
+  </div>
+
+  <div class="content-grid">
+    <aside class="sticky-toc">
+      <div class="toc-title">Compliance Index</div>
+      <ul class="toc-menu">
+        <li><a href="#envelope-encryption">1. Envelope Encryption</a></li>
+        <li><a href="#fips-hsm">2. FIPS 140-3 HSM Root</a></li>
+        <li><a href="#volatile-ram">3. Volatile RAM Processing</a></li>
+        <li><a href="#zero-logging">4. Zero-Retention Guarantee</a></li>
+        <li><a href="#byok-sovereignty">5. CometAPI BYOK Isolation</a></li>
+        <li><a href="#audit-checklist">6. Security Checklist</a></li>
+      </ul>
+      <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);display:grid;gap:8px;">
+        <a href="/docs/keys" class="btn-return-home" style="width:100%;justify-content:center;font-size:12px;background:#0f172a;border:1px solid var(--cyan-border);color:var(--cyan);">
+          🔑 Key Rotation Guide &rarr;
+        </a>
+        <a href="/" class="btn-return-home" style="width:100%;justify-content:center;font-size:12px;">
+          &larr; Return to Main Site
+        </a>
+      </div>
+    </aside>
+
+    <main class="article-body">
+      <section id="envelope-encryption">
+        <h2><span>🛡️</span> 1. Two-Tier Envelope Encryption Architecture</h2>
+        <p>
+          CostImplodeAI implements two-tier envelope encryption conforming to NIST SP 800-38D:
+        </p>
+        <ul>
+          <li><strong>Key Encryption Key (KEK):</strong> A 256-bit AES master key sealed inside Google Cloud KMS Hardware Security Modules.</li>
+          <li><strong>Client-Side Key Derivation &amp; DEK:</strong> Browser inputs derive 256-bit keys using PBKDF2-SHA256 (100,000 iterations + random 128-bit salt) and encrypt payloads via AES-GCM-256 with a cryptographically random 96-bit initialization vector (IV).</li>
+        </ul>
+      </section>
+
+      <section id="fips-hsm">
+        <h2><span>🏛️</span> 2. FIPS 140-3 Level 3 Hardware Security Modules</h2>
+        <p>
+          Server-side vault envelopes are backed by Google Cloud KMS HSM clusters validated under <strong>FIPS 140-3 Level 3</strong>, enforcing tamper-resistant cryptographic boundaries and strict zeroization.
+        </p>
+      </section>
+
+      <section id="volatile-ram">
+        <h2><span>⚡</span> 3. Ephemeral Volatile Execution (Zero Disk Storage)</h2>
+        <ol>
+          <li>CometAPI BYOK credentials are either passed per-request via HTTPS headers or decrypted transiently inside container RAM.</li>
+          <li>The upstream TLS 1.3 connection to <code>api.cometapi.com</code> executes with forward secrecy.</li>
+          <li>Immediately after request dispatch, volatile memory buffers are zeroed; plaintext keys never touch persistent storage or logs.</li>
+        </ol>
+      </section>
+
+      <section id="zero-logging">
+        <h2><span>🚫</span> 4. Zero Prompt Retention &amp; Training Guarantee</h2>
+        <ul>
+          <li><strong>Zero Model Training:</strong> Prompts and responses are never used to train models.</li>
+          <li><strong>Zero Payload Persistence:</strong> Neither prompts nor completions are persisted to databases.</li>
+          <li><strong>Session Token Hygiene:</strong> Browser sessions keep bearer tokens strictly in JavaScript memory (or SameSite=None Partitioned HttpOnly cookies), never in <code>localStorage</code>.</li>
+        </ul>
+      </section>
+
+      <section id="byok-sovereignty">
+        <h2><span>🔑</span> 5. Single-Supplier <a href="https://www.cometapi.com/?ref=gcp" target="_blank" rel="noopener noreferrer" style="color:var(--cyan);">CometAPI.com</a> BYOK Isolation</h2>
+        <p>
+          By consolidating upstream inference strictly onto your funded <a href="https://www.cometapi.com/?ref=gcp" target="_blank" rel="noopener noreferrer" style="color:var(--cyan);text-decoration:underline;">CometAPI.com</a> account, security teams audit one wholesale vendor relationship and enforce per-key RPM + monthly spend caps via <a href="/docs/keys" style="color:var(--orange-light);text-decoration:underline;">Gateway API Key governance</a>.
+        </p>
+      </section>
+
+      <section id="audit-checklist">
+        <h2><span>✅</span> 6. Enterprise Security Checklist</h2>
+        <table class="spec-table">
+          <thead>
+            <tr>
+              <th>Security Control</th>
+              <th>Specification</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>HSM Standard</strong></td>
+              <td>FIPS 140-3 Level 3 Hardware Boundary</td>
+              <td><span style="color:var(--green);font-weight:700;">VERIFIED</span></td>
+            </tr>
+            <tr>
+              <td><strong>Client BYOK Cipher</strong></td>
+              <td>PBKDF2-SHA256 + AES-256-GCM (96-bit IV) + SHA-256 Fingerprint</td>
+              <td><span style="color:var(--green);font-weight:700;">VERIFIED</span></td>
+            </tr>
+            <tr>
+              <td><strong>Authentication &amp; Billing</strong></td>
+              <td>Whop OAuth 2.1 (PKCE + OIDC) + Whop Checkout</td>
+              <td><span style="color:var(--green);font-weight:700;">VERIFIED</span></td>
+            </tr>
+            <tr>
+              <td><strong>Prompt Retention</strong></td>
+              <td>0% Persistent Retention (RAM Ephemeral)</td>
+              <td><span style="color:var(--green);font-weight:700;">VERIFIED</span></td>
+            </tr>
+            <tr>
+              <td><strong>Key Rotation</strong></td>
+              <td>Instant Zero-Downtime Token Rotation (<code>/api/v1/keys/rotate</code>)</td>
+              <td><span style="color:var(--green);font-weight:700;">VERIFIED</span></td>
+            </tr>
+            <tr>
+              <td><strong>Savings Ceiling</strong></td>
+              <td>Strictly Governed at Up to 63.3%</td>
+              <td><span style="color:var(--green);font-weight:700;">VERIFIED</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+</div>
+
+
+<footer>
+  <div class="footer-inner">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a href="/" class="logo">
+          <img class="logo-mark-img" src="/costimplode-mark.png" alt="CostImplodeAI" />
+          <span class="logo-wordmark"><span>COST</span><span>IMPLODEAI</span></span>
+        </a>
+        <p>100% BYOK autonomous AI model arbitrage gateway powered by your funded CometAPI.com account, with Whop OAuth membership &amp; billing and mathematically governed savings up to 63.3%.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Documentation &amp; Product</h4>
+        <a href="/">Homepage &amp; Dashboard</a>
+        <a href="/#simulator">Live Arbitrage Simulator</a>
+        <a href="/docs/byok">BYOK Setup Guide (CometAPI)</a>
+        <a href="/docs/keys">API Key Lifecycle &amp; Rotation</a>
+        <a href="/docs/api">API Reference &amp; SDKs</a>
+        <a href="/#pricing">Whop Subscription Plans</a>
+      </div>
+      <div class="footer-col">
+        <h4>Sole AI Supplier</h4>
+        <a href="https://www.cometapi.com/?ref=gcp" target="_blank" rel="noopener noreferrer">CometAPI.com (Purchase Credits + 10% Bonus)</a>
+        <a href="/#api-vault">CometAPI Key Vault</a>
+        <a href="/#tokentax">TokenTax0 (Coming Soon)</a>
+        <a href="/sitemap.xml">XML Sitemap</a>
+      </div>
+      <div class="footer-col">
+        <h4>Legal &amp; Security</h4>
+        <a href="/privacy.html">Privacy Policy</a>
+        <a href="/terms.html">Terms of Service</a>
+        <a href="/compliance.html">Compliance Whitepaper</a>
+        <a href="mailto:support@costimplodeai.com">support@costimplodeai.com</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <div class="footer-copy">&copy; 2026 BotVibe AI LLC. All rights reserved. CostImplodeAI is a registered trademark.</div>
+      <div style="display:flex;gap:16px;font-size:12px;color:var(--dim);flex-wrap:wrap;">
+        <span>100% BYOK Sovereignty</span>
+        <a href="https://www.cometapi.com/?ref=gcp" target="_blank" rel="noopener noreferrer" style="color:var(--cyan);text-decoration:none;">CometAPI.com Sole AI Supplier</a>
+        <span>Whop Checkout &amp; OAuth</span>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script>
+function copyCode(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const txt = el.innerText || el.textContent;
+  navigator.clipboard.writeText(txt).then(() => {
+    const btn = event && event.target;
+    if (btn) {
+      const oldText = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = oldText; }, 2000);
+    }
+  });
+}
+</script>
+
+
+</body>
+</html>

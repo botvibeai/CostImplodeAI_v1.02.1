@@ -1,0 +1,14 @@
+{
+  "name": "costimplodeai-live-import",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "node scripts/generate-discovery.mjs",
+    "build": "npm run generate && node --check src/worker.js && node --check src/generated-homepage.js && node --check scripts/local-server.mjs && node --check public/ask-question.js && node --check public/webmcp.js && node scripts/validate.mjs",
+    "lint": "npm run validate",
+    "dev": "npm run generate && node scripts/local-server.mjs",
+    "start": "node scripts/local-server.mjs",
+    "validate": "npm run generate && node scripts/validate.mjs"
+  }
+}

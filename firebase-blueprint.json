@@ -46,6 +46,10 @@
           "maxLength": 64,
           "minLength": 1,
           "description": "Routed execution or complexity tier"
+        },
+        "selection_passes": {
+          "type": "integer",
+          "description": "Number of semantic routing selection passes executed (1 for Pass 1 final, 2 when Pass 2 judge re-evaluated)"
         }
       },
       "required": [
@@ -56,7 +60,8 @@
         "baseline_cost_usd",
         "delivered_cost_usd",
         "model",
-        "tier"
+        "tier",
+        "selection_passes"
       ]
     }
   },

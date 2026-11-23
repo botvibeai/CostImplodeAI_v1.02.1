@@ -60,13 +60,16 @@ function getNewYorkDateString(date = new Date()) {
   return `${map.year}-${map.month}-${map.day}`;
 }
 
-async function recordCallTelemetry({ baselineCostUsd, deliveredCostUsd, model, tier }) {
+async function recordCallTelemetry({ baselineCostUsd, deliveredCostUsd, model, tier, selectionPasses = 1 }) {
   if (!firestoreDb) return;
   const baseline = Number(baselineCostUsd || 0);
   const delivered = Number(deliveredCostUsd || 0);
   const rawSavingsPct = baseline > 0
     ? Number((((baseline - delivered) / baseline) * 100).toFixed(2))
     : 0;
+  const normalizedPasses = Number.isInteger(selectionPasses) && selectionPasses >= 1 && selectionPasses <= 2
+    ? selectionPasses
+    : 1;
 
   const now = new Date();
   // Sanitized telemetry document: never stores prompt text or API keys
@@ -78,7 +81,8 @@ async function recordCallTelemetry({ baselineCostUsd, deliveredCostUsd, model, t
     baseline_cost_usd: Number(baseline.toFixed(6)),
     delivered_cost_usd: Number(delivered.toFixed(6)),
     model: String(model || "unknown").slice(0, 128),
-    tier: String(tier || "unknown").slice(0, 64)
+    tier: String(tier || "unknown").slice(0, 64),
+    selection_passes: normalizedPasses
   };
 
   try {
@@ -273,7 +277,7 @@ const MODEL_CATALOG = {
   },
   "cometapi/gpt-5-preview": {
     id: "cometapi/gpt-5-preview",
-    upstream_model: "gpt-4o-mini",
+    upstream_model: "gpt-4.1",
     name: "GPT-5 / Frontier Next (CometAPI)",
     platform: "cometapi",
     provider: "CometAPI.com Gateway",
@@ -289,7 +293,14 @@ const MODEL_CATALOG = {
 };
 
 const CLASSIFIER_MODEL_ID = "cometapi/gemini-2.5-flash-lite";
-const UPSTREAM_TIMEOUT_MS = 30000;
+const SECOND_JUDGE_MODEL_ID = "cometapi/gemini-2.5-flash";
+const PASS_2_ENTROPY_THRESHOLD = 0.30;
+const REQUEST_TIME_BUDGET_MS = 60000;
+const MIN_VIABLE_HOP_BUDGET_MS = 1500;
+const PASS1_TIMEOUT_CAP_MS = 10000;
+const PASS2_TIMEOUT_CAP_MS = 15000;
+const PRIMARY_EXEC_TIMEOUT_CAP_MS = 26000;
+const FALLBACK_EXEC_TIMEOUT_CAP_MS = 22000;
 
 function getBlendedRate1M(modelEntry, options = {}) {
   const effectiveInRate = options.is_batch
@@ -353,18 +364,74 @@ function mapTierToCategory(tier) {
   return "janitor";
 }
 
+const TIER_ENTROPY_BANDS = {
+  CLASSIFIER_DIRECT: { min: 0.0, max: 0.18, fallback: 0.06 },
+  CLASS_1_JANITOR: { min: 0.19, max: 0.29, fallback: 0.24 },
+  CLASS_1_EXECUTION: { min: 0.30, max: 0.59, fallback: 0.45 },
+  CLASS_2_BRAIN_SURGEON: { min: 0.60, max: 1.0, fallback: 0.82 }
+};
+
+function getRemainingBudgetMs(deadlineMs) {
+  return Math.floor(deadlineMs - performance.now());
+}
+
+function deriveDispatchedTierFromEntropy(score) {
+  if (score >= 0.60) return "CLASS_2_BRAIN_SURGEON";
+  if (score >= 0.30) return "CLASS_1_EXECUTION";
+  return "CLASS_1_JANITOR";
+}
+
+function normalizeCoherentDecision({ rawTier, rawEntropy, allowDirect }) {
+  const validTiers = new Set(Object.keys(TIER_ENTROPY_BANDS));
+  const hasValidTier = validTiers.has(rawTier);
+  const parsedNum = Number(rawEntropy);
+  const hasValidScore = Number.isFinite(parsedNum);
+  const clampedScore = hasValidScore
+    ? Number(Math.min(1.0, Math.max(0.0, parsedNum)).toFixed(4))
+    : null;
+
+  if (rawTier === "CLASSIFIER_DIRECT" && allowDirect) {
+    if (clampedScore === null || clampedScore < PASS_2_ENTROPY_THRESHOLD) {
+      const coherentScore = clampedScore === null
+        ? TIER_ENTROPY_BANDS.CLASSIFIER_DIRECT.fallback
+        : Number(Math.min(TIER_ENTROPY_BANDS.CLASSIFIER_DIRECT.max, clampedScore).toFixed(4));
+      return { tier: "CLASSIFIER_DIRECT", entropy_score: coherentScore };
+    }
+  }
+
+  let finalScore;
+  if (clampedScore !== null) {
+    finalScore = clampedScore;
+  } else if (hasValidTier && rawTier !== "CLASSIFIER_DIRECT") {
+    finalScore = TIER_ENTROPY_BANDS[rawTier].fallback;
+  } else {
+    finalScore = TIER_ENTROPY_BANDS.CLASS_1_EXECUTION.fallback;
+  }
+
+  let finalTier = deriveDispatchedTierFromEntropy(finalScore);
+  if (finalTier === "CLASS_1_JANITOR" && finalScore < TIER_ENTROPY_BANDS.CLASS_1_JANITOR.min) {
+    finalScore = TIER_ENTROPY_BANDS.CLASS_1_JANITOR.min;
+  }
+  return {
+    tier: finalTier,
+    entropy_score: Number(finalScore.toFixed(4))
+  };
+}
+
 function selectBestModelForTier(tier, requestedModelId, options = {}) {
   const targetCategory = mapTierToCategory(tier);
+  const excludedIds = new Set(["cometapi/llama-3.3-70b"]);
   const tierCandidates = Object.values(MODEL_CATALOG).filter(
-    (m) => m.category === targetCategory && m.id !== "cometapi/gpt-5-preview"
+    (m) => m.category === targetCategory && !excludedIds.has(m.id)
   );
-  if (requestedModelId && MODEL_CATALOG[requestedModelId]) {
+  if (requestedModelId && MODEL_CATALOG[requestedModelId] && !excludedIds.has(requestedModelId)) {
     const requested = MODEL_CATALOG[requestedModelId];
     if (requested.category === targetCategory) return requested;
   }
   if (tier === "CLASS_2_BRAIN_SURGEON") {
     return (
       MODEL_CATALOG["cometapi/claude-3.5-sonnet"] ||
+      MODEL_CATALOG["cometapi/gpt-5-preview"] ||
       MODEL_CATALOG["cometapi/gemini-3.1-pro"] ||
       tierCandidates[0]
     );
@@ -378,52 +445,88 @@ function selectBestModelForTier(tier, requestedModelId, options = {}) {
   return sorted[0] || MODEL_CATALOG[CLASSIFIER_MODEL_ID];
 }
 
-const TIER_RANK = {
-  brain_surgeon: 3,
-  execution: 2,
-  janitor: 1
-};
-
-function buildCheaperFallbackChain(primaryModel, options = {}) {
+// Same-tier cheaper fallback chain: preserves judge's final execution_tier & entropy_score coherence
+function buildSameTierFallbackChain(primaryModel, options = {}) {
   const primaryRate = getBlendedRate1M(primaryModel, options);
-  const primaryRank = TIER_RANK[primaryModel.category] || 1;
-  const cheaperCandidates = Object.values(MODEL_CATALOG)
+  // Exclude unmapped aliases and high-latency thinking models from fallback hops so fallback completes inside 60s budget
+  const excludedFallbackIds = new Set(["cometapi/llama-3.3-70b", "cometapi/gemini-3.1-pro"]);
+
+  const sameTierCheaper = Object.values(MODEL_CATALOG)
     .filter(
       (m) =>
         m.id !== primaryModel.id &&
-        m.id !== "cometapi/gpt-5-preview" &&
-        m.id !== "cometapi/llama-3.3-70b" &&
-        m.id !== "cometapi/gemini-3.5-flash" &&
-        m.id !== "cometapi/deepseek-r1" &&
-        getBlendedRate1M(m, options) <= primaryRate &&
-        (TIER_RANK[m.category] || 1) <= primaryRank
+        m.category === primaryModel.category &&
+        !excludedFallbackIds.has(m.id) &&
+        getBlendedRate1M(m, options) <= primaryRate
     )
-    .sort((a, b) => {
-      const rankDiff = (TIER_RANK[b.category] || 1) - (TIER_RANK[a.category] || 1);
-      if (rankDiff !== 0) return rankDiff;
-      return getBlendedRate1M(b, options) - getBlendedRate1M(a, options);
-    });
+    .sort((a, b) => getBlendedRate1M(b, options) - getBlendedRate1M(a, options));
 
   const chain = [primaryModel];
   const seen = new Set([primaryModel.id]);
-  for (const cand of cheaperCandidates) {
-    if (!seen.has(cand.id) && chain.length < 4) {
-      if (chain.length === 3 && cand.id !== CLASSIFIER_MODEL_ID && !seen.has(CLASSIFIER_MODEL_ID)) {
-        continue;
-      }
+  for (const cand of sameTierCheaper) {
+    if (!seen.has(cand.id) && chain.length < 3) {
       chain.push(cand);
       seen.add(cand.id);
     }
   }
-  if (!seen.has(CLASSIFIER_MODEL_ID)) {
-    chain.push(MODEL_CATALOG[CLASSIFIER_MODEL_ID]);
-    seen.add(CLASSIFIER_MODEL_ID);
-  }
-  // If primary was already the lowest-cost Janitor model, include one reliable Janitor peer retry
-  if (chain.length === 1 && MODEL_CATALOG["cometapi/gemini-3.1-flash-lite"]) {
-    chain.push(MODEL_CATALOG["cometapi/gemini-3.1-flash-lite"]);
+
+  // Ensure every tier has at least one fresh same-tier fallback/retry if primary was already the cheapest
+  if (chain.length === 1) {
+    const sameTierPeer = Object.values(MODEL_CATALOG)
+      .filter((m) => m.id !== primaryModel.id && m.category === primaryModel.category && !excludedFallbackIds.has(m.id))
+      .sort((a, b) => getBlendedRate1M(a, options) - getBlendedRate1M(b, options))[0];
+    if (sameTierPeer) {
+      chain.push(sameTierPeer);
+    } else {
+      chain.push(primaryModel);
+    }
   }
   return chain;
+}
+
+// Validate that response_text is a complete answer that opens at its own beginning (never a partial fragment)
+function validateCompleteAnswer(text, finishReason) {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) {
+    return { ok: false, reason: "empty_content" };
+  }
+
+  const normalizedFinish = String(finishReason || "").trim().toLowerCase();
+  const incompleteFinishReasons = new Set(["length", "max_tokens", "content_filter", "incomplete", "error"]);
+  if (normalizedFinish && incompleteFinishReasons.has(normalizedFinish)) {
+    return { ok: false, reason: `incomplete_finish_reason:${normalizedFinish}` };
+  }
+
+  // Reject dangling mid-equation subscript openings like "_n = \text{Tr}(\rho^n)$..." (while allowing balanced _italics_)
+  if (/^_[A-Za-z0-9{]/.test(trimmed) && !/^_[^_\n]+_/.test(trimmed)) {
+    return { ok: false, reason: "dangling_subscript_opening" };
+  }
+
+  // Reject dangling closing punctuation or stray closing bold/markdown markers at start
+  if (/^[,;:\)\]\}]/.test(trimmed)) {
+    return { ok: false, reason: "dangling_punctuation_opening" };
+  }
+  if (/^\*\*(?:[\s.,;:!?)]|$)/.test(trimmed)) {
+    return { ok: false, reason: "dangling_bold_closer_opening" };
+  }
+
+  // Reject unbalanced triple-backtick code fences (mid-code-block start or truncated code block end)
+  const fenceMatches = trimmed.match(/```/g);
+  if (fenceMatches && fenceMatches.length % 2 !== 0) {
+    return { ok: false, reason: "unbalanced_code_fences" };
+  }
+
+  // Reject truncated LaTeX command or dangling lone backslash at end
+  if (/(?:\\$|\\[A-Za-z]+\{[^}\n]*$)/.test(trimmed)) {
+    return { ok: false, reason: "truncated_latex_ending" };
+  }
+
+  // Reject dangling empty markdown header at the very end
+  if (/(?:^|\n)#{1,6}\s*$/.test(trimmed)) {
+    return { ok: false, reason: "dangling_heading_ending" };
+  }
+
+  return { ok: true, reason: null };
 }
 
 // Single-Attempt Live Upstream Call via CometAPI
@@ -433,8 +536,15 @@ async function callCometApiChat({
   activeKey,
   maxTokens = 1024,
   temperature = 0.7,
-  timeoutMs = UPSTREAM_TIMEOUT_MS
+  timeoutMs = PRIMARY_EXEC_TIMEOUT_CAP_MS,
+  requireComplete = true
 }) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs < MIN_VIABLE_HOP_BUDGET_MS) {
+    const err = new Error("Per-request 60s time budget exhausted before upstream hop.");
+    err.budgetExhausted = true;
+    throw err;
+  }
+
   const resp = await fetch("https://api.cometapi.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -462,7 +572,9 @@ async function callCometApiChat({
   }
 
   const json = await resp.json();
-  const choiceMsg = json?.choices?.[0]?.message;
+  const choice = json?.choices?.[0];
+  const choiceMsg = choice?.message;
+  const finishReason = choice?.finish_reason || "";
   let content = "";
   if (typeof choiceMsg?.content === "string") {
     content = choiceMsg.content.trim();
@@ -475,11 +587,21 @@ async function callCometApiChat({
   if (!content) {
     throw new Error(`CometAPI returned empty content for upstream model ${upstreamModel}`);
   }
-  return { text: content, usage: json?.usage || null };
+  if (requireComplete) {
+    const check = validateCompleteAnswer(content, finishReason);
+    if (!check.ok) {
+      const err = new Error(`Discarded incomplete upstream output from ${upstreamModel} (${check.reason})`);
+      err.incompleteOutput = true;
+      throw err;
+    }
+  }
+  return { text: content, finishReason, usage: json?.usage || null };
 }
 
-// Dedicated Semantic Complexity Classifier via cometapi/gemini-2.5-flash-lite
-async function classifyPromptWithCometAPI({ prompt, messages, activeKey, options = {} }) {
+// Two-Pass Semantic Complexity Classifier:
+// Pass 1: cometapi/gemini-2.5-flash-lite (final if entropy < 0.30 and trivial/janitor -> selection_passes = 1)
+// Pass 2: cometapi/gemini-2.5-flash (mandatory independent re-evaluation whenever Pass 1 entropy >= 0.30 -> selection_passes = 2)
+async function classifyPromptTwoPass({ prompt, messages, activeKey, deadlineMs, options = {} }) {
   const slotHint = String(options.byok_slot || "auto").toUpperCase();
   if (slotHint === "COMETAPI_FRONTIER" || slotHint === "BRAIN_SURGEON") {
     const model = selectBestModelForTier("CLASS_2_BRAIN_SURGEON", null, options);
@@ -487,115 +609,189 @@ async function classifyPromptWithCometAPI({ prompt, messages, activeKey, options
       tier: "CLASS_2_BRAIN_SURGEON",
       entropy_score: 0.85,
       selectedModel: model,
-      directAnswer: null
+      directAnswer: null,
+      selectionPasses: 1
     };
   }
   if (slotHint === "COMETAPI_FAST" || slotHint === "JANITOR") {
     const model = selectBestModelForTier("CLASS_1_JANITOR", null, options);
     return {
       tier: "CLASS_1_JANITOR",
-      entropy_score: 0.20,
+      entropy_score: 0.22,
       selectedModel: model,
-      directAnswer: null
+      directAnswer: null,
+      selectionPasses: 1
     };
   }
-
-  const classifierSystemPrompt = [
-    "You are CostImplodeAI's sole routing classifier. Evaluate each prompt purely on the actual cognitive and reasoning depth it demands, and select the cheapest tier that will answer it WELL — never higher than needed (waste) and never lower than needed (under-thinking).",
-    "",
-    "Assess reasoning demand across: multi-step logical deduction, mathematical proof or symbolic derivation, code architecture or subtle debugging, frontier scientific/research synthesis, conceptual ambiguity or nuance, specialist domain depth, and open-ended analysis.",
-    "",
-    "Choose EXACTLY ONE tier:",
-    '1. "CLASSIFIER_DIRECT" — Choose ONLY when there is ZERO reason to dispatch to another model: the prompt is trivial/straightforward, unambiguous, requires no multi-step reasoning, proof, non-trivial coding, custom multi-turn context, or deep research synthesis, and YOU can answer it completely and well right now. If there is ANY real doubt about answering it completely and well, do NOT pick CLASSIFIER_DIRECT; dispatch instead.',
-    '2. "CLASS_1_JANITOR" — Simple extraction, light formatting, brief factual queries, or concise summarization that does not justify higher tiers.',
-    '3. "CLASS_1_EXECUTION" — Standard coding/scripts, debugging, structured comparisons, analytical writing, or multi-step but routine technical tasks.',
-    '4. "CLASS_2_BRAIN_SURGEON" — Mathematical proofs, frontier or unsolved physics/research synthesis, complex software/system architecture, deep domain expertise, subtle edge-case reasoning, or deep open-ended analysis where smaller models would under-think.',
-    "",
-    "Choose the best-fit model ID for the chosen tier:",
-    '- CLASSIFIER_DIRECT: "cometapi/gemini-2.5-flash-lite"',
-    '- CLASS_1_JANITOR: "cometapi/gemini-2.5-flash-lite" or "cometapi/deepseek-v3" or "cometapi/gemini-3.1-flash-lite"',
-    '- CLASS_1_EXECUTION: "cometapi/gemini-2.5-flash" (default for execution/coding)',
-    '- CLASS_2_BRAIN_SURGEON: "cometapi/claude-3.5-sonnet" (frontier synthesis, physics/research, architecture, complex reasoning), "cometapi/gemini-3.1-pro" (deep analytical synthesis), or "cometapi/deepseek-r1" (concise mathematical proofs)',
-    "",
-    'Assign "entropy_score" as a float in [0.00, 1.00] tracking genuine reasoning depth (0.02-0.18 for CLASSIFIER_DIRECT, 0.19-0.34 for CLASS_1_JANITOR, 0.35-0.59 for CLASS_1_EXECUTION, 0.60-1.00 for CLASS_2_BRAIN_SURGEON).',
-    'If and ONLY if tier === "CLASSIFIER_DIRECT", include your complete, accurate, natural answer in "direct_answer" (never include routing metadata, cost, or tier labels). Otherwise set "direct_answer": null.',
-    "",
-    'Output ONLY raw valid JSON with no markdown commentary: {"tier":"...","entropy_score":0.0,"selected_model":"...","direct_answer":null}'
-  ].join("\n");
 
   const hasMultiTurnOrSystem = Array.isArray(messages) && messages.length > 1;
   const classifierUserContent = hasMultiTurnOrSystem
     ? `Multi-turn conversation:\n${messages.map((m) => `[${m.role}]: ${m.content}`).join("\n")}\n\nLatest user prompt to evaluate: ${prompt}`
     : prompt;
 
-  const classifierMessages = [
-    { role: "system", content: classifierSystemPrompt },
-    { role: "user", content: classifierUserContent }
-  ];
+  const pass1SystemPrompt = [
+    "You are CostImplodeAI's Pass 1 routing classifier. Evaluate each prompt purely on the actual cognitive and reasoning depth it demands, and select the cheapest tier that will answer it WELL — never higher than needed (waste) and never lower than needed (under-thinking).",
+    "",
+    "Assess reasoning demand across: multi-step logical deduction, mathematical proof or symbolic derivation, code architecture or subtle debugging, frontier scientific/research synthesis, conceptual ambiguity or nuance, specialist domain depth, and open-ended analysis.",
+    "",
+    "Strict aligned tiers and entropy bands:",
+    '1. "CLASSIFIER_DIRECT" (entropy 0.00-0.18) — Choose ONLY when there is ZERO reason to dispatch to another model: the prompt is trivial/straightforward, unambiguous, requires no multi-step reasoning, proof, non-trivial coding, custom multi-turn context, or deep research synthesis, and YOU can answer it completely and well right now. If there is ANY real doubt, do NOT pick CLASSIFIER_DIRECT.',
+    '2. "CLASS_1_JANITOR" (entropy 0.19-0.29) — Simple extraction, light formatting, brief factual queries, or concise summarization.',
+    '3. "CLASS_1_EXECUTION" (entropy 0.30-0.59) — Standard coding/scripts, debugging, structured comparisons, analytical writing, or multi-step routine technical tasks.',
+    '4. "CLASS_2_BRAIN_SURGEON" (entropy 0.60-1.00) — Mathematical proofs, frontier or unsolved physics/research synthesis, complex software/system architecture, deep specialist expertise, subtle edge-case reasoning, or deep open-ended analysis.',
+    "",
+    "Choose the best-fit model ID for the chosen tier:",
+    '- CLASSIFIER_DIRECT: "cometapi/gemini-2.5-flash-lite"',
+    '- CLASS_1_JANITOR: "cometapi/gemini-2.5-flash-lite" or "cometapi/deepseek-v3" or "cometapi/gemini-3.1-flash-lite"',
+    '- CLASS_1_EXECUTION: "cometapi/gemini-2.5-flash"',
+    '- CLASS_2_BRAIN_SURGEON: "cometapi/claude-3.5-sonnet", "cometapi/gemini-3.1-pro", or "cometapi/deepseek-r1"',
+    "",
+    'If and ONLY if tier === "CLASSIFIER_DIRECT", include your complete, accurate, natural answer in "direct_answer" (never include routing metadata, cost, or tier labels). Otherwise set "direct_answer": null.',
+    'Output ONLY raw valid JSON with no markdown commentary: {"tier":"...","entropy_score":0.0,"selected_model":"...","direct_answer":null}'
+  ].join("\n");
+
+  let pass1DirectAnswer = null;
+  let pass1Parsed = null;
+  let needsPass2 = false;
+
+  const pass1Remaining = getRemainingBudgetMs(deadlineMs);
+  if (pass1Remaining < MIN_VIABLE_HOP_BUDGET_MS) {
+    const err = new Error("Per-request 60s time budget exhausted before Pass 1 classification.");
+    err.budgetExhausted = true;
+    throw err;
+  }
 
   try {
-    const clfResp = await callCometApiChat({
+    const pass1Resp = await callCometApiChat({
       upstreamModel: MODEL_CATALOG[CLASSIFIER_MODEL_ID].upstream_model,
-      messages: classifierMessages,
+      messages: [
+        { role: "system", content: pass1SystemPrompt },
+        { role: "user", content: classifierUserContent }
+      ],
       activeKey,
       maxTokens: 1024,
       temperature: 0.1,
-      timeoutMs: UPSTREAM_TIMEOUT_MS
+      timeoutMs: Math.min(PASS1_TIMEOUT_CAP_MS, pass1Remaining),
+      requireComplete: false
     });
 
-    const parsed = parseClassifierJson(clfResp.text);
-    const validTiers = new Set([
-      "CLASSIFIER_DIRECT",
-      "CLASS_1_JANITOR",
-      "CLASS_1_EXECUTION",
-      "CLASS_2_BRAIN_SURGEON"
-    ]);
-    let tier = validTiers.has(parsed?.tier) ? parsed.tier : "CLASS_1_EXECUTION";
+    pass1Parsed = parseClassifierJson(pass1Resp.text);
+    const rawPass1Score = Number(pass1Parsed?.entropy_score);
+    const rawPass1Tier = String(pass1Parsed?.tier || "");
 
-    let directAnswer = null;
-    if (tier === "CLASSIFIER_DIRECT") {
-      if (typeof parsed?.direct_answer === "string" && parsed.direct_answer.trim().length > 0 && !hasMultiTurnOrSystem) {
-        directAnswer = parsed.direct_answer.trim();
-      } else {
-        // Any missing direct answer or multi-turn complexity dispatches as normal
-        tier = "CLASS_1_JANITOR";
-      }
+    if (
+      typeof pass1Parsed?.direct_answer === "string" &&
+      pass1Parsed.direct_answer.trim().length > 0 &&
+      !hasMultiTurnOrSystem &&
+      validateCompleteAnswer(pass1Parsed.direct_answer.trim(), "stop").ok
+    ) {
+      pass1DirectAnswer = pass1Parsed.direct_answer.trim();
     }
 
-    const defaultEntropyByTier = {
-      CLASSIFIER_DIRECT: 0.08,
-      CLASS_1_JANITOR: 0.25,
-      CLASS_1_EXECUTION: 0.48,
-      CLASS_2_BRAIN_SURGEON: 0.82
-    };
-    const parsedEntropy = Number(parsed?.entropy_score);
-    const entropyScore = Number.isFinite(parsedEntropy)
-      ? Number(Math.min(1.0, Math.max(0.0, parsedEntropy)).toFixed(4))
-      : defaultEntropyByTier[tier];
+    const scoreTriggersPass2 = !Number.isFinite(rawPass1Score) || rawPass1Score >= PASS_2_ENTROPY_THRESHOLD;
+    const tierTriggersPass2 = rawPass1Tier === "CLASS_1_EXECUTION" || rawPass1Tier === "CLASS_2_BRAIN_SURGEON";
+    needsPass2 = scoreTriggersPass2 || tierTriggersPass2;
 
-    const selectedModel = tier === "CLASSIFIER_DIRECT"
-      ? MODEL_CATALOG[CLASSIFIER_MODEL_ID]
-      : selectBestModelForTier(tier, parsed?.selected_model, options);
+    if (!needsPass2) {
+      const allowDirect = Boolean(pass1DirectAnswer) && !hasMultiTurnOrSystem;
+      const coherent = normalizeCoherentDecision({
+        rawTier: rawPass1Tier,
+        rawEntropy: rawPass1Score,
+        allowDirect
+      });
+      const selectedModel = coherent.tier === "CLASSIFIER_DIRECT"
+        ? MODEL_CATALOG[CLASSIFIER_MODEL_ID]
+        : selectBestModelForTier(coherent.tier, pass1Parsed?.selected_model, options);
 
-    return {
-      tier,
-      entropy_score: entropyScore,
-      selectedModel,
-      directAnswer
-    };
+      return {
+        tier: coherent.tier,
+        entropy_score: coherent.entropy_score,
+        selectedModel,
+        directAnswer: coherent.tier === "CLASSIFIER_DIRECT" ? pass1DirectAnswer : null,
+        selectionPasses: 1
+      };
+    }
   } catch (err) {
-    if (err?.nonRetryableAuth) {
+    if (err?.nonRetryableAuth || err?.budgetExhausted) {
       throw err;
     }
-    // If classifier response fails parsing or times out once, fall back to a safe live Execution dispatch (never fake text)
-    const fallbackTier = "CLASS_1_EXECUTION";
-    return {
-      tier: fallbackTier,
-      entropy_score: 0.45,
-      selectedModel: selectBestModelForTier(fallbackTier, null, options),
-      directAnswer: null
-    };
+    // Pass 1 parsing/transient failure escalates cleanly to Pass 2 judge
+    needsPass2 = true;
   }
+
+  // PASS 2: Materially stronger independent judge (cometapi/gemini-2.5-flash)
+  const pass2SystemPrompt = [
+    "You are CostImplodeAI's Pass 2 senior routing judge. Independently evaluate the prompt strictly on the genuine cognitive and reasoning depth required to answer it WELL — never higher than needed (waste) and never lower than needed (under-thinking).",
+    "",
+    "Evaluate: multi-step logical deduction, mathematical proofs or formal derivations, software/system architecture, subtle debugging, frontier or unsolved scientific/research synthesis, domain expertise, conceptual ambiguity, and open-ended analysis.",
+    "",
+    "Assign a single coherent tier AND matching entropy_score inside its exact band:",
+    '- "CLASSIFIER_DIRECT" (0.00 to 0.18): Trivial, unambiguous prompt with zero reason to dispatch to a stronger model; a fast lightweight model can answer completely and accurately with zero doubt.',
+    '- "CLASS_1_JANITOR" (0.19 to 0.29): Simple extraction, formatting, light summarization, or straightforward factual lookup.',
+    '- "CLASS_1_EXECUTION" (0.30 to 0.59): Standard coding/scripts, debugging, structured comparisons, analytical writing, or routine multi-step technical tasks.',
+    '- "CLASS_2_BRAIN_SURGEON" (0.60 to 1.00): Mathematical proofs, frontier or unsolved physics/research synthesis, complex distributed/software architecture, deep specialist reasoning, subtle edge-case analysis, or deep open-ended synthesis where smaller models would under-think.',
+    "",
+    "Choose the best-fit model ID for your chosen tier:",
+    '- CLASSIFIER_DIRECT: "cometapi/gemini-2.5-flash-lite"',
+    '- CLASS_1_JANITOR: "cometapi/gemini-2.5-flash-lite" or "cometapi/deepseek-v3" or "cometapi/gemini-3.1-flash-lite"',
+    '- CLASS_1_EXECUTION: "cometapi/gemini-2.5-flash"',
+    '- CLASS_2_BRAIN_SURGEON: "cometapi/gpt-5-preview" (fast frontier research, physics synthesis, distributed architecture), "cometapi/claude-3.5-sonnet" (complex software/reasoning), or "cometapi/deepseek-r1" (concise mathematical proofs)',
+    "",
+    'Respond immediately with ONLY raw valid JSON and no extra commentary: {"tier":"...","entropy_score":0.0,"selected_model":"..."}'
+  ].join("\n");
+
+  let lastPass2Error = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const pass2Remaining = getRemainingBudgetMs(deadlineMs);
+    if (pass2Remaining < MIN_VIABLE_HOP_BUDGET_MS) {
+      const err = new Error("Per-request 60s time budget exhausted before Pass 2 judge.");
+      err.budgetExhausted = true;
+      throw err;
+    }
+
+    try {
+      const judgeModelId = attempt === 0 ? SECOND_JUDGE_MODEL_ID : "cometapi/gpt-5-preview";
+      const pass2Resp = await callCometApiChat({
+        upstreamModel: MODEL_CATALOG[judgeModelId].upstream_model,
+        messages: [
+          { role: "system", content: pass2SystemPrompt },
+          { role: "user", content: classifierUserContent }
+        ],
+        activeKey,
+        maxTokens: 1024,
+        temperature: 0.1,
+        timeoutMs: Math.min(attempt === 0 ? PASS2_TIMEOUT_CAP_MS : 10000, pass2Remaining),
+        requireComplete: false
+      });
+
+      const pass2Parsed = parseClassifierJson(pass2Resp.text);
+      const coherent = normalizeCoherentDecision({
+        rawTier: String(pass2Parsed?.tier || ""),
+        rawEntropy: pass2Parsed?.entropy_score,
+        allowDirect: !hasMultiTurnOrSystem
+      });
+
+      const selectedModel = coherent.tier === "CLASSIFIER_DIRECT"
+        ? MODEL_CATALOG[CLASSIFIER_MODEL_ID]
+        : selectBestModelForTier(coherent.tier, pass2Parsed?.selected_model, options);
+
+      return {
+        tier: coherent.tier,
+        entropy_score: coherent.entropy_score,
+        selectedModel,
+        directAnswer: coherent.tier === "CLASSIFIER_DIRECT" ? pass1DirectAnswer : null,
+        selectionPasses: 2
+      };
+    } catch (err) {
+      lastPass2Error = err;
+      if (err?.nonRetryableAuth || err?.budgetExhausted) {
+        throw err;
+      }
+      console.warn(`[pass2-judge] attempt ${attempt + 1} failed: ${err?.message || err}`);
+    }
+  }
+
+  throw lastPass2Error || new Error("Pass 2 judge failed to classify prompt.");
 }
 
 // Synchronous Arbitrage Matrix Calculator (Used by /api/calculate-arbitrage & /api/routes preview matrix)
@@ -1109,9 +1305,10 @@ const server = createServer(async (req, res) => {
       });
     }
 
-    // 2. Chat Completions & Arbitrage Gateway Endpoint (Always executes live CometAPI completion; never returns fake routing summaries)
+    // 2. Chat Completions & Arbitrage Gateway Endpoint (Two-pass selection, complete answers only, strict 60s budget)
     if (routePath === "/v1/chat/completions" && req.method === "POST") {
       const reqStartMs = performance.now();
+      const deadlineMs = reqStartMs + REQUEST_TIME_BUDGET_MS;
       const body = await parseJsonBody(req);
       totalRequestsServed++;
 
@@ -1197,19 +1394,20 @@ const server = createServer(async (req, res) => {
 
       let classification;
       try {
-        classification = await classifyPromptWithCometAPI({
+        classification = await classifyPromptTwoPass({
           prompt,
           messages: upstreamMessages,
           activeKey,
+          deadlineMs,
           options: routeOptions
         });
-      } catch (authErr) {
+      } catch (clfErr) {
         const measuredLatencyMs = Math.max(1, Math.round(performance.now() - reqStartMs));
         return sendJson(res, {
           error: {
-            message: authErr?.message || "CometAPI authentication or upstream classification failed.",
+            message: clfErr?.message || "CometAPI authentication or upstream classification failed.",
             type: "upstream_error",
-            code: "cometapi_upstream_failed"
+            code: clfErr?.budgetExhausted ? "upstream_budget_exceeded" : "cometapi_upstream_failed"
           },
           latency_ms: measuredLatencyMs,
           security: {
@@ -1222,48 +1420,82 @@ const server = createServer(async (req, res) => {
         }, 502);
       }
 
+      const finalTier = classification.tier;
+      const finalEntropyScore = classification.entropy_score;
+      const selectionPasses = classification.selectionPasses;
       let responseText = "";
       let isLiveExecution = false;
       let winningModel = classification.selectedModel;
-      let finalTier = classification.tier;
       let lastUpstreamError = null;
 
-      if (classification.tier === "CLASSIFIER_DIRECT" && classification.directAnswer) {
-        responseText = classification.directAnswer;
-        isLiveExecution = true;
+      if (finalTier === "CLASSIFIER_DIRECT") {
         winningModel = MODEL_CATALOG[CLASSIFIER_MODEL_ID];
-        finalTier = "CLASSIFIER_DIRECT";
+        if (classification.directAnswer && validateCompleteAnswer(classification.directAnswer, "stop").ok) {
+          responseText = classification.directAnswer;
+          isLiveExecution = true;
+        } else {
+          // Pass 2 downgraded to CLASSIFIER_DIRECT: first-pass classifier answers directly as a fresh complete call
+          const remainingMs = getRemainingBudgetMs(deadlineMs);
+          if (remainingMs >= MIN_VIABLE_HOP_BUDGET_MS) {
+            try {
+              const directRes = await callCometApiChat({
+                upstreamModel: winningModel.upstream_model,
+                messages: upstreamMessages,
+                activeKey,
+                maxTokens: requestedMaxTokens || 1024,
+                temperature: requestedTemperature,
+                timeoutMs: Math.min(15000, remainingMs),
+                requireComplete: true
+              });
+              responseText = directRes.text;
+              isLiveExecution = true;
+            } catch (err) {
+              lastUpstreamError = err;
+            }
+          } else {
+            lastUpstreamError = new Error("Per-request 60s time budget exhausted before direct answer.");
+          }
+        }
       } else {
-        const candidateChain = buildCheaperFallbackChain(classification.selectedModel, routeOptions);
+        // Strictly same-tier cheaper fallback chain so judge's final tier & entropy score always remain coherent
+        const candidateChain = buildSameTierFallbackChain(classification.selectedModel, routeOptions);
         for (let idx = 0; idx < candidateChain.length; idx++) {
+          const remainingMs = getRemainingBudgetMs(deadlineMs);
+          if (remainingMs < MIN_VIABLE_HOP_BUDGET_MS) {
+            lastUpstreamError = new Error("Per-request 60s time budget exhausted across upstream hops.");
+            break;
+          }
+
           const candidateModel = candidateChain[idx];
           const defaultMaxTokensByTier =
             candidateModel.category === "brain_surgeon"
-              ? 2048
+              ? 4096
               : candidateModel.category === "execution"
-                ? 1024
-                : 512;
+                ? 4096
+                : 1024;
           const maxTokens = requestedMaxTokens || defaultMaxTokensByTier;
-          const hopTimeoutMs = idx === 0 ? UPSTREAM_TIMEOUT_MS : 25000;
+          const capMs = idx === 0 ? PRIMARY_EXEC_TIMEOUT_CAP_MS : FALLBACK_EXEC_TIMEOUT_CAP_MS;
+          const hopTimeoutMs = Math.min(capMs, remainingMs);
 
           try {
+            // Always send original unmodified messages so every attempt is a fresh, complete generation
             const liveRes = await callCometApiChat({
               upstreamModel: candidateModel.upstream_model,
               messages: upstreamMessages,
               activeKey,
               maxTokens,
               temperature: requestedTemperature,
-              timeoutMs: hopTimeoutMs
+              timeoutMs: hopTimeoutMs,
+              requireComplete: true
             });
             responseText = liveRes.text;
             isLiveExecution = true;
             winningModel = candidateModel;
-            finalTier = mapCategoryToExecutionTier(candidateModel.category);
             break;
           } catch (err) {
             lastUpstreamError = err;
             console.warn(`[upstream-fallback] ${candidateModel.id} (${candidateModel.upstream_model}) failed: ${err?.message || err}`);
-            if (err?.nonRetryableAuth) {
+            if (err?.nonRetryableAuth || err?.budgetExhausted) {
               break;
             }
           }
@@ -1275,7 +1507,7 @@ const server = createServer(async (req, res) => {
       if (!isLiveExecution || !responseText) {
         return sendJson(res, {
           error: {
-            message: lastUpstreamError?.message || "All CometAPI upstream models failed to return a completion.",
+            message: lastUpstreamError?.message || "All same-tier CometAPI upstream models failed to return a complete answer within the 60s budget.",
             type: "upstream_error",
             code: "cometapi_upstream_failed"
           },
@@ -1314,14 +1546,16 @@ const server = createServer(async (req, res) => {
         baselineCostUsd: metrics.baselineCostUsd,
         deliveredCostUsd: metrics.rawExecutionCostUsd,
         model: winningModel.id,
-        tier: finalTier
+        tier: finalTier,
+        selectionPasses
       });
 
       return sendJson(res, {
         request_id: "req_" + randomBytes(5).toString("hex"),
         execution_tier: finalTier,
-        entropy_score: classification.entropy_score,
+        entropy_score: finalEntropyScore,
         complexity_decision_theta: theta_i,
+        selection_passes: selectionPasses,
         selected_model: winningModel.id,
         selected_model_name: winningModel.name,
         selected_provider: winningModel.provider,
@@ -1348,7 +1582,7 @@ const server = createServer(async (req, res) => {
         "x-ci-security": "FIPS-140-3_AES-GCM-256",
         "x-ci-routed-provider": winningModel.provider,
         "x-ci-routed-model": winningModel.id,
-        "x-ci-entropy-score": String(classification.entropy_score),
+        "x-ci-entropy-score": String(finalEntropyScore),
         "x-ci-savings-pct": "63.3%",
         "x-ci-byok-mode": byokHeaderMode
       });

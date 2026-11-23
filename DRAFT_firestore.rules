@@ -20,7 +20,8 @@ service cloud.firestore {
         'baseline_cost_usd',
         'delivered_cost_usd',
         'model',
-        'tier'
+        'tier',
+        'selection_passes'
       ])
       && data.keys().hasOnly([
         'timestamp',
@@ -30,7 +31,8 @@ service cloud.firestore {
         'baseline_cost_usd',
         'delivered_cost_usd',
         'model',
-        'tier'
+        'tier',
+        'selection_passes'
       ])
       && data.timestamp is string && data.timestamp.size() >= 20 && data.timestamp.size() <= 64
       && data.timestamp_ms is number && data.timestamp_ms > 0
@@ -39,7 +41,8 @@ service cloud.firestore {
       && data.baseline_cost_usd is number && data.baseline_cost_usd >= 0
       && data.delivered_cost_usd is number && data.delivered_cost_usd >= 0
       && data.model is string && data.model.size() >= 1 && data.model.size() <= 128
-      && data.tier is string && data.tier.size() >= 1 && data.tier.size() <= 64;
+      && data.tier is string && data.tier.size() >= 1 && data.tier.size() <= 64
+      && data.selection_passes is int && data.selection_passes >= 1 && data.selection_passes <= 2;
     }
 
     // Telemetry records are written and aggregated exclusively by server Admin SDK routes

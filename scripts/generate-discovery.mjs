@@ -8,6 +8,7 @@ import {
   privacyHtml,
   termsHtml,
   complianceHtml,
+  dashHtml,
   renderSharedFooter
 } from "./pages-templates.mjs";
 
@@ -47,6 +48,7 @@ await writeFile(path.join(publicDir, "docs", "keys.html"), keysDocsHtml(origin, 
 await writeFile(path.join(publicDir, "privacy.html"), privacyHtml(origin, cometAffiliateUrl));
 await writeFile(path.join(publicDir, "terms.html"), termsHtml(origin, cometAffiliateUrl));
 await writeFile(path.join(publicDir, "compliance.html"), complianceHtml(origin, cometAffiliateUrl));
+await writeFile(path.join(publicDir, "dash.html"), dashHtml(origin, cometAffiliateUrl));
 await writeFile(path.join(publicDir, "auth.md"), authMd());
 await writeFile(path.join(publicDir, ".well-known", "api-catalog.json"), json(apiCatalog()));
 await writeFile(path.join(publicDir, ".well-known", "oauth-protected-resource.json"), json(oauthProtectedResource()));
@@ -258,7 +260,7 @@ function askQuestionJs() {
     {
       q: "whop",
       title: "Whop OAuth Sign-In & Subscription Checkout",
-      body: "Member login uses Whop OAuth 2.1 (PKCE + OIDC) and paid tiers ($29 Starter, $149 Pro, $999+ Enterprise) process directly through Whop Checkout links.",
+      body: "Member login uses Whop OAuth 2.1 (PKCE + OIDC) and tiers ($0/mo Explorer, $29/mo Starter, $49/mo Pro, $149/mo Agency) process directly through Whop Checkout links.",
       url: "/#pricing"
     },
     {
@@ -419,6 +421,7 @@ function sitemapXml() {
   const today = new Date().toISOString().slice(0, 10);
   const urls = [
     ["/", "1.0", "daily"],
+    ["/dash", "0.9", "daily"],
     ["/docs/byok", "0.9", "weekly"],
     ["/docs/keys", "0.9", "weekly"],
     ["/docs/api", "0.9", "weekly"],

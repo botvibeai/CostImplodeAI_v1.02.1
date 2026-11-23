@@ -1,0 +1,71 @@
+{
+  "entities": {
+    "CallTelemetry": {
+      "title": "CallTelemetry",
+      "description": "Sanitized routing cost telemetry persisted for every completed /v1/chat/completions call. Never stores prompt text or API keys.",
+      "type": "object",
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 64,
+          "minLength": 20,
+          "description": "ISO 8601 UTC completion timestamp"
+        },
+        "timestamp_ms": {
+          "type": "number",
+          "description": "Epoch milliseconds at completion"
+        },
+        "ny_date": {
+          "type": "string",
+          "maxLength": 10,
+          "minLength": 10,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "America/New_York calendar day (YYYY-MM-DD)"
+        },
+        "savings_pct": {
+          "type": "number",
+          "description": "Raw uncapped percentage savings (baseline vs delivered before display cap)"
+        },
+        "baseline_cost_usd": {
+          "type": "number",
+          "description": "Baseline retail cost in USD"
+        },
+        "delivered_cost_usd": {
+          "type": "number",
+          "description": "Actual delivered execution cost in USD before display cap"
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 1,
+          "description": "Routed model ID"
+        },
+        "tier": {
+          "type": "string",
+          "maxLength": 64,
+          "minLength": 1,
+          "description": "Routed execution or complexity tier"
+        }
+      },
+      "required": [
+        "timestamp",
+        "timestamp_ms",
+        "ny_date",
+        "savings_pct",
+        "baseline_cost_usd",
+        "delivered_cost_usd",
+        "model",
+        "tier"
+      ]
+    }
+  },
+  "firestore": {
+    "/call_telemetry/{telemetryId}": {
+      "schema": {
+        "$ref": "#/entities/CallTelemetry"
+      },
+      "description": "Append-only server telemetry records for completed /v1/chat/completions requests; strictly denied to direct client reads and writes."
+    }
+  }
+}

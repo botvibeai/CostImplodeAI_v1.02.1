@@ -79,6 +79,10 @@ export const STATIC_ROUTE_MAP = {
     assetPath: "/compliance.html",
     contentType: "text/html; charset=utf-8"
   },
+  "/dash": {
+    assetPath: "/dash.html",
+    contentType: "text/html; charset=utf-8"
+  },
   "/openapi.json": {
     assetPath: "/openapi.json",
     contentType: "application/openapi+json; charset=utf-8"

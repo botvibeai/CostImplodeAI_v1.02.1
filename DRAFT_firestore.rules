@@ -1,0 +1,55 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny catch-all safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidCallTelemetry(data) {
+      return data.keys().hasAll([
+        'timestamp',
+        'timestamp_ms',
+        'ny_date',
+        'savings_pct',
+        'baseline_cost_usd',
+        'delivered_cost_usd',
+        'model',
+        'tier'
+      ])
+      && data.keys().hasOnly([
+        'timestamp',
+        'timestamp_ms',
+        'ny_date',
+        'savings_pct',
+        'baseline_cost_usd',
+        'delivered_cost_usd',
+        'model',
+        'tier'
+      ])
+      && data.timestamp is string && data.timestamp.size() >= 20 && data.timestamp.size() <= 64
+      && data.timestamp_ms is number && data.timestamp_ms > 0
+      && data.ny_date is string && data.ny_date.size() == 10 && data.ny_date.matches('^\\d{4}-\\d{2}-\\d{2}$')
+      && data.savings_pct is number
+      && data.baseline_cost_usd is number && data.baseline_cost_usd >= 0
+      && data.delivered_cost_usd is number && data.delivered_cost_usd >= 0
+      && data.model is string && data.model.size() >= 1 && data.model.size() <= 128
+      && data.tier is string && data.tier.size() >= 1 && data.tier.size() <= 64;
+    }
+
+    // Telemetry records are written and aggregated exclusively by server Admin SDK routes
+    // (/v1/chat/completions and /api/dash-stats). Direct client reads/writes are forbidden.
+    match /call_telemetry/{telemetryId} {
+      allow get: if false && isValidId(telemetryId);
+      allow list: if false;
+      allow create: if false && isValidId(telemetryId) && isValidCallTelemetry(request.resource.data);
+      allow update: if false && isValidId(telemetryId) && isValidCallTelemetry(request.resource.data);
+      allow delete: if false && isValidId(telemetryId);
+    }
+  }
+}

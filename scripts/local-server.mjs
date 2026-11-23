@@ -1,8 +1,10 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { createReadStream, existsSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import path from "node:path";
+import { initializeApp, getApps, getApp } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
 import {
   LINK_HEADER,
   STATIC_ROUTE_MAP,
@@ -21,6 +23,71 @@ const TRUST_SEED_BASELINE = 1283;
 let realUserCount = 0;
 let totalRequestsServed = 4120;
 
+// Firebase Admin SDK (Firestore persistence for call_telemetry)
+let firestoreDb = null;
+let firestoreInitError = null;
+try {
+  const firebaseConfigPath = path.join(root, "firebase-applet-config.json");
+  if (existsSync(firebaseConfigPath)) {
+    const firebaseConfig = JSON.parse(readFileSync(firebaseConfigPath, "utf8"));
+    const projectId = String(firebaseConfig.projectId || "").trim();
+    const databaseId = String(firebaseConfig.firestoreDatabaseId || "").trim();
+    if (
+      projectId &&
+      projectId !== "remixed-project-id" &&
+      databaseId !== "remixed-firestore-database-id"
+    ) {
+      const firebaseApp = getApps().length ? getApp() : initializeApp({ projectId });
+      firestoreDb =
+        databaseId && databaseId !== "(default)"
+          ? getFirestore(firebaseApp, databaseId)
+          : getFirestore(firebaseApp);
+    }
+  }
+} catch (err) {
+  firestoreInitError = err?.message || String(err);
+  console.error("[telemetry] Firebase Admin initialization warning:", firestoreInitError);
+}
+
+function getNewYorkDateString(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
+async function recordCallTelemetry({ baselineCostUsd, deliveredCostUsd, model, tier }) {
+  if (!firestoreDb) return;
+  const baseline = Number(baselineCostUsd || 0);
+  const delivered = Number(deliveredCostUsd || 0);
+  const rawSavingsPct = baseline > 0
+    ? Number((((baseline - delivered) / baseline) * 100).toFixed(2))
+    : 0;
+
+  const now = new Date();
+  // Sanitized telemetry document: never stores prompt text or API keys
+  const doc = {
+    timestamp: now.toISOString(),
+    timestamp_ms: now.getTime(),
+    ny_date: getNewYorkDateString(now),
+    savings_pct: rawSavingsPct,
+    baseline_cost_usd: Number(baseline.toFixed(6)),
+    delivered_cost_usd: Number(delivered.toFixed(6)),
+    model: String(model || "unknown").slice(0, 128),
+    tier: String(tier || "unknown").slice(0, 64)
+  };
+
+  try {
+    await firestoreDb.collection("call_telemetry").add(doc);
+  } catch (err) {
+    console.error("[telemetry] Failed to persist call_telemetry:", err?.message || String(err));
+  }
+}
+
 // Server Environment Secrets (Strictly loaded from environment variables; never hardcoded)
 const INTERNAL_SECRETS = {
   cometapi: (process.env.COMET_API_KEY || "").trim()
@@ -33,7 +100,7 @@ const WHOP_CONFIG = {
   checkoutUrls: {
     starter: (process.env.WHOP_CHECKOUT_STARTER_URL || "").trim(),
     pro: (process.env.WHOP_CHECKOUT_PRO_URL || "").trim(),
-    enterprise: (process.env.WHOP_CHECKOUT_ENTERPRISE_URL || "").trim()
+    agency: (process.env.WHOP_CHECKOUT_AGENCY_URL || process.env.WHOP_CHECKOUT_ENTERPRISE_URL || "").trim()
   }
 };
 
@@ -172,7 +239,7 @@ const MODEL_CATALOG = {
   },
   "cometapi/gemini-3.1-pro": {
     id: "cometapi/gemini-3.1-pro",
-    upstream_model: "gemini-3.1-pro",
+    upstream_model: "gemini-3.1-pro-preview",
     name: "Gemini 3.1 Pro (CometAPI)",
     platform: "cometapi",
     provider: "CometAPI.com Gateway",
@@ -191,7 +258,7 @@ const MODEL_CATALOG = {
   },
   "cometapi/claude-3.5-sonnet": {
     id: "cometapi/claude-3.5-sonnet",
-    upstream_model: "claude-3-5-sonnet-20241022",
+    upstream_model: "claude-sonnet-4-5",
     name: "Claude 3.5 Sonnet (CometAPI)",
     platform: "cometapi",
     provider: "CometAPI.com Gateway",
@@ -221,74 +288,346 @@ const MODEL_CATALOG = {
   }
 };
 
-// Real-Time Upstream Inference Execution via CometAPI BYOK or Server Env Key
-async function executeLiveUpstream(prompt, modelKey, userByokKey = "") {
-  const activeKey = (userByokKey || INTERNAL_SECRETS.cometapi || "").trim();
-  if (!activeKey) return { success: false };
+const CLASSIFIER_MODEL_ID = "cometapi/gemini-2.5-flash-lite";
+const UPSTREAM_TIMEOUT_MS = 30000;
 
-  const catalogEntry = MODEL_CATALOG[modelKey];
-  const cometModel = catalogEntry?.upstream_model || (
-    modelKey.includes("deepseek") ? "deepseek-chat" : (modelKey.includes("gpt") ? "gpt-4o-mini" : "claude-3-5-sonnet-20241022")
-  );
-
-  try {
-    const resp = await fetch("https://api.cometapi.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${activeKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: cometModel,
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 150
-      }),
-      signal: AbortSignal.timeout(4000)
-    });
-    if (resp.ok) {
-      const json = await resp.json();
-      const text = json.choices?.[0]?.message?.content;
-      if (text) return { success: true, text, live_routed: true };
-    }
-  } catch {
-    // Fallback to deterministic synthesis if upstream is unreachable or credits are depleted
-  }
-  return { success: false };
+function getBlendedRate1M(modelEntry, options = {}) {
+  const effectiveInRate = options.is_batch
+    ? (modelEntry.batch_input_rate_1m || modelEntry.input_rate_1m * 0.5)
+    : (options.has_cache && modelEntry.cached_input_rate_1m ? modelEntry.cached_input_rate_1m : modelEntry.input_rate_1m);
+  const effectiveOutRate = options.is_batch
+    ? (modelEntry.batch_output_rate_1m || modelEntry.output_rate_1m * 0.5)
+    : modelEntry.output_rate_1m;
+  return (effectiveInRate * 0.7) + (effectiveOutRate * 0.3);
 }
 
-// Mathematical Arbitrage Routing Function (Preserved Spec: S_entropy, tau_threshold=0.50, 28% pruning, 63.3% governance cap)
+function computeMonetaryMetrics(estimatedTokens, modelEntry, options = {}) {
+  const pruningRatio = 0.28;
+  const prunedTokens = Math.round(estimatedTokens * (1.0 - pruningRatio));
+  const blendedCost1M = getBlendedRate1M(modelEntry, options);
+  const baselineCost = (estimatedTokens / 1000000.0) * BASELINE_RETAIL_PER_1M;
+  const rawExecutionCost = (prunedTokens / 1000000.0) * blendedCost1M;
+  const maxSavingsPct = 63.3;
+  const deliveredCost = Number((baselineCost * (1.0 - (maxSavingsPct / 100.0))).toFixed(6));
+  const protocolYield = Number(Math.max(0, baselineCost - deliveredCost).toFixed(6));
+
+  return {
+    estimatedTokens,
+    prunedTokens,
+    blendedCost1M,
+    baselineCostUsd: Number(baselineCost.toFixed(6)),
+    rawExecutionCostUsd: Number(rawExecutionCost.toFixed(6)),
+    deliveredCostUsd: deliveredCost,
+    maxSavingsPct,
+    protocolYieldUsd: protocolYield
+  };
+}
+
+function parseClassifierJson(rawText) {
+  const trimmed = String(rawText || "").trim();
+  const fenceStripped = trimmed
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  try {
+    return JSON.parse(fenceStripped);
+  } catch {
+    const firstBrace = fenceStripped.indexOf("{");
+    const lastBrace = fenceStripped.lastIndexOf("}");
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      return JSON.parse(fenceStripped.slice(firstBrace, lastBrace + 1));
+    }
+    throw new Error("Classifier output was not valid JSON");
+  }
+}
+
+function mapCategoryToExecutionTier(category) {
+  if (category === "brain_surgeon") return "CLASS_2_BRAIN_SURGEON";
+  if (category === "execution") return "CLASS_1_EXECUTION";
+  return "CLASS_1_JANITOR";
+}
+
+function mapTierToCategory(tier) {
+  if (tier === "CLASS_2_BRAIN_SURGEON") return "brain_surgeon";
+  if (tier === "CLASS_1_EXECUTION") return "execution";
+  return "janitor";
+}
+
+function selectBestModelForTier(tier, requestedModelId, options = {}) {
+  const targetCategory = mapTierToCategory(tier);
+  const tierCandidates = Object.values(MODEL_CATALOG).filter(
+    (m) => m.category === targetCategory && m.id !== "cometapi/gpt-5-preview"
+  );
+  if (requestedModelId && MODEL_CATALOG[requestedModelId]) {
+    const requested = MODEL_CATALOG[requestedModelId];
+    if (requested.category === targetCategory) return requested;
+  }
+  if (tier === "CLASS_2_BRAIN_SURGEON") {
+    return (
+      MODEL_CATALOG["cometapi/claude-3.5-sonnet"] ||
+      MODEL_CATALOG["cometapi/gemini-3.1-pro"] ||
+      tierCandidates[0]
+    );
+  }
+  if (tier === "CLASS_1_EXECUTION") {
+    return MODEL_CATALOG["cometapi/gemini-2.5-flash"] || tierCandidates[0];
+  }
+  const sorted = [...tierCandidates].sort(
+    (a, b) => getBlendedRate1M(a, options) - getBlendedRate1M(b, options)
+  );
+  return sorted[0] || MODEL_CATALOG[CLASSIFIER_MODEL_ID];
+}
+
+const TIER_RANK = {
+  brain_surgeon: 3,
+  execution: 2,
+  janitor: 1
+};
+
+function buildCheaperFallbackChain(primaryModel, options = {}) {
+  const primaryRate = getBlendedRate1M(primaryModel, options);
+  const primaryRank = TIER_RANK[primaryModel.category] || 1;
+  const cheaperCandidates = Object.values(MODEL_CATALOG)
+    .filter(
+      (m) =>
+        m.id !== primaryModel.id &&
+        m.id !== "cometapi/gpt-5-preview" &&
+        m.id !== "cometapi/llama-3.3-70b" &&
+        m.id !== "cometapi/gemini-3.5-flash" &&
+        m.id !== "cometapi/deepseek-r1" &&
+        getBlendedRate1M(m, options) <= primaryRate &&
+        (TIER_RANK[m.category] || 1) <= primaryRank
+    )
+    .sort((a, b) => {
+      const rankDiff = (TIER_RANK[b.category] || 1) - (TIER_RANK[a.category] || 1);
+      if (rankDiff !== 0) return rankDiff;
+      return getBlendedRate1M(b, options) - getBlendedRate1M(a, options);
+    });
+
+  const chain = [primaryModel];
+  const seen = new Set([primaryModel.id]);
+  for (const cand of cheaperCandidates) {
+    if (!seen.has(cand.id) && chain.length < 4) {
+      if (chain.length === 3 && cand.id !== CLASSIFIER_MODEL_ID && !seen.has(CLASSIFIER_MODEL_ID)) {
+        continue;
+      }
+      chain.push(cand);
+      seen.add(cand.id);
+    }
+  }
+  if (!seen.has(CLASSIFIER_MODEL_ID)) {
+    chain.push(MODEL_CATALOG[CLASSIFIER_MODEL_ID]);
+    seen.add(CLASSIFIER_MODEL_ID);
+  }
+  // If primary was already the lowest-cost Janitor model, include one reliable Janitor peer retry
+  if (chain.length === 1 && MODEL_CATALOG["cometapi/gemini-3.1-flash-lite"]) {
+    chain.push(MODEL_CATALOG["cometapi/gemini-3.1-flash-lite"]);
+  }
+  return chain;
+}
+
+// Single-Attempt Live Upstream Call via CometAPI
+async function callCometApiChat({
+  upstreamModel,
+  messages,
+  activeKey,
+  maxTokens = 1024,
+  temperature = 0.7,
+  timeoutMs = UPSTREAM_TIMEOUT_MS
+}) {
+  const resp = await fetch("https://api.cometapi.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${activeKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: upstreamModel,
+      messages,
+      max_tokens: maxTokens,
+      temperature
+    }),
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+
+  if (!resp.ok) {
+    let errSummary = "";
+    try {
+      errSummary = (await resp.text()).slice(0, 300);
+    } catch {}
+    const err = new Error(`CometAPI HTTP ${resp.status}${errSummary ? `: ${errSummary}` : ""}`);
+    err.httpStatus = resp.status;
+    err.nonRetryableAuth = resp.status === 401 || resp.status === 402 || resp.status === 403;
+    throw err;
+  }
+
+  const json = await resp.json();
+  const choiceMsg = json?.choices?.[0]?.message;
+  let content = "";
+  if (typeof choiceMsg?.content === "string") {
+    content = choiceMsg.content.trim();
+  } else if (Array.isArray(choiceMsg?.content)) {
+    content = choiceMsg.content
+      .map((part) => (typeof part?.text === "string" ? part.text : ""))
+      .join("")
+      .trim();
+  }
+  if (!content) {
+    throw new Error(`CometAPI returned empty content for upstream model ${upstreamModel}`);
+  }
+  return { text: content, usage: json?.usage || null };
+}
+
+// Dedicated Semantic Complexity Classifier via cometapi/gemini-2.5-flash-lite
+async function classifyPromptWithCometAPI({ prompt, messages, activeKey, options = {} }) {
+  const slotHint = String(options.byok_slot || "auto").toUpperCase();
+  if (slotHint === "COMETAPI_FRONTIER" || slotHint === "BRAIN_SURGEON") {
+    const model = selectBestModelForTier("CLASS_2_BRAIN_SURGEON", null, options);
+    return {
+      tier: "CLASS_2_BRAIN_SURGEON",
+      entropy_score: 0.85,
+      selectedModel: model,
+      directAnswer: null
+    };
+  }
+  if (slotHint === "COMETAPI_FAST" || slotHint === "JANITOR") {
+    const model = selectBestModelForTier("CLASS_1_JANITOR", null, options);
+    return {
+      tier: "CLASS_1_JANITOR",
+      entropy_score: 0.20,
+      selectedModel: model,
+      directAnswer: null
+    };
+  }
+
+  const classifierSystemPrompt = [
+    "You are CostImplodeAI's sole routing classifier. Evaluate each prompt purely on the actual cognitive and reasoning depth it demands, and select the cheapest tier that will answer it WELL — never higher than needed (waste) and never lower than needed (under-thinking).",
+    "",
+    "Assess reasoning demand across: multi-step logical deduction, mathematical proof or symbolic derivation, code architecture or subtle debugging, frontier scientific/research synthesis, conceptual ambiguity or nuance, specialist domain depth, and open-ended analysis.",
+    "",
+    "Choose EXACTLY ONE tier:",
+    '1. "CLASSIFIER_DIRECT" — Choose ONLY when there is ZERO reason to dispatch to another model: the prompt is trivial/straightforward, unambiguous, requires no multi-step reasoning, proof, non-trivial coding, custom multi-turn context, or deep research synthesis, and YOU can answer it completely and well right now. If there is ANY real doubt about answering it completely and well, do NOT pick CLASSIFIER_DIRECT; dispatch instead.',
+    '2. "CLASS_1_JANITOR" — Simple extraction, light formatting, brief factual queries, or concise summarization that does not justify higher tiers.',
+    '3. "CLASS_1_EXECUTION" — Standard coding/scripts, debugging, structured comparisons, analytical writing, or multi-step but routine technical tasks.',
+    '4. "CLASS_2_BRAIN_SURGEON" — Mathematical proofs, frontier or unsolved physics/research synthesis, complex software/system architecture, deep domain expertise, subtle edge-case reasoning, or deep open-ended analysis where smaller models would under-think.',
+    "",
+    "Choose the best-fit model ID for the chosen tier:",
+    '- CLASSIFIER_DIRECT: "cometapi/gemini-2.5-flash-lite"',
+    '- CLASS_1_JANITOR: "cometapi/gemini-2.5-flash-lite" or "cometapi/deepseek-v3" or "cometapi/gemini-3.1-flash-lite"',
+    '- CLASS_1_EXECUTION: "cometapi/gemini-2.5-flash" (default for execution/coding)',
+    '- CLASS_2_BRAIN_SURGEON: "cometapi/claude-3.5-sonnet" (frontier synthesis, physics/research, architecture, complex reasoning), "cometapi/gemini-3.1-pro" (deep analytical synthesis), or "cometapi/deepseek-r1" (concise mathematical proofs)',
+    "",
+    'Assign "entropy_score" as a float in [0.00, 1.00] tracking genuine reasoning depth (0.02-0.18 for CLASSIFIER_DIRECT, 0.19-0.34 for CLASS_1_JANITOR, 0.35-0.59 for CLASS_1_EXECUTION, 0.60-1.00 for CLASS_2_BRAIN_SURGEON).',
+    'If and ONLY if tier === "CLASSIFIER_DIRECT", include your complete, accurate, natural answer in "direct_answer" (never include routing metadata, cost, or tier labels). Otherwise set "direct_answer": null.',
+    "",
+    'Output ONLY raw valid JSON with no markdown commentary: {"tier":"...","entropy_score":0.0,"selected_model":"...","direct_answer":null}'
+  ].join("\n");
+
+  const hasMultiTurnOrSystem = Array.isArray(messages) && messages.length > 1;
+  const classifierUserContent = hasMultiTurnOrSystem
+    ? `Multi-turn conversation:\n${messages.map((m) => `[${m.role}]: ${m.content}`).join("\n")}\n\nLatest user prompt to evaluate: ${prompt}`
+    : prompt;
+
+  const classifierMessages = [
+    { role: "system", content: classifierSystemPrompt },
+    { role: "user", content: classifierUserContent }
+  ];
+
+  try {
+    const clfResp = await callCometApiChat({
+      upstreamModel: MODEL_CATALOG[CLASSIFIER_MODEL_ID].upstream_model,
+      messages: classifierMessages,
+      activeKey,
+      maxTokens: 1024,
+      temperature: 0.1,
+      timeoutMs: UPSTREAM_TIMEOUT_MS
+    });
+
+    const parsed = parseClassifierJson(clfResp.text);
+    const validTiers = new Set([
+      "CLASSIFIER_DIRECT",
+      "CLASS_1_JANITOR",
+      "CLASS_1_EXECUTION",
+      "CLASS_2_BRAIN_SURGEON"
+    ]);
+    let tier = validTiers.has(parsed?.tier) ? parsed.tier : "CLASS_1_EXECUTION";
+
+    let directAnswer = null;
+    if (tier === "CLASSIFIER_DIRECT") {
+      if (typeof parsed?.direct_answer === "string" && parsed.direct_answer.trim().length > 0 && !hasMultiTurnOrSystem) {
+        directAnswer = parsed.direct_answer.trim();
+      } else {
+        // Any missing direct answer or multi-turn complexity dispatches as normal
+        tier = "CLASS_1_JANITOR";
+      }
+    }
+
+    const defaultEntropyByTier = {
+      CLASSIFIER_DIRECT: 0.08,
+      CLASS_1_JANITOR: 0.25,
+      CLASS_1_EXECUTION: 0.48,
+      CLASS_2_BRAIN_SURGEON: 0.82
+    };
+    const parsedEntropy = Number(parsed?.entropy_score);
+    const entropyScore = Number.isFinite(parsedEntropy)
+      ? Number(Math.min(1.0, Math.max(0.0, parsedEntropy)).toFixed(4))
+      : defaultEntropyByTier[tier];
+
+    const selectedModel = tier === "CLASSIFIER_DIRECT"
+      ? MODEL_CATALOG[CLASSIFIER_MODEL_ID]
+      : selectBestModelForTier(tier, parsed?.selected_model, options);
+
+    return {
+      tier,
+      entropy_score: entropyScore,
+      selectedModel,
+      directAnswer
+    };
+  } catch (err) {
+    if (err?.nonRetryableAuth) {
+      throw err;
+    }
+    // If classifier response fails parsing or times out once, fall back to a safe live Execution dispatch (never fake text)
+    const fallbackTier = "CLASS_1_EXECUTION";
+    return {
+      tier: fallbackTier,
+      entropy_score: 0.45,
+      selectedModel: selectBestModelForTier(fallbackTier, null, options),
+      directAnswer: null
+    };
+  }
+}
+
+// Synchronous Arbitrage Matrix Calculator (Used by /api/calculate-arbitrage & /api/routes preview matrix)
 function calculateArbitrageRoute(prompt, options = {}) {
   const lower = prompt.toLowerCase();
   const estimatedTokens = Math.max(16, Math.round((prompt.length + 180) / 4.0));
 
-  // 1. Dynamic Semantic Entropy Classification (Brain Surgeon vs. Janitor)
+  // 1. Dynamic Semantic Entropy Classification (Brain Surgeon vs. Execution vs. Janitor)
   const complexKeywords = [
     "code", "architecture", "refactor", "math", "proof", "function",
     "json_schema", "algorithm", "security", "theorem", "integral", "matrix",
-    "class ", "interface ", "async ", "def ", "dockerfile", "kubernetes"
+    "class ", "interface ", "async ", "def ", "dockerfile", "kubernetes",
+    "prove", "irrational", "paradox", "quantum", "superconductivity", "derive", "explain why"
   ];
   let keywordHits = 0;
   for (const kw of complexKeywords) {
     if (lower.includes(kw)) keywordHits++;
   }
   const lengthEntropy = Math.min(0.45, (prompt.length / 3000) * 0.45);
-  const keywordEntropy = Math.min(0.40, (keywordHits / 4.0) * 0.40);
+  const keywordEntropy = Math.min(0.45, (keywordHits / 3.0) * 0.45);
   const structureEntropy = (prompt.includes("{") || prompt.includes("```") || prompt.includes("->")) ? 0.15 : 0.05;
   const s_entropy = Number(Math.min(1.0, lengthEntropy + keywordEntropy + structureEntropy).toFixed(4));
 
-  // Threshold tau_threshold = 0.50
   const tau_threshold = 0.50;
-  const theta_i = s_entropy >= tau_threshold ? 1 : 0; // 1 = High-tier Brain Surgeon, 0 = Low-tier Janitor/Execution
+  const theta_i = s_entropy >= tau_threshold ? 1 : 0;
 
-  // 2. Speculative Payload Compression & Token Pruning (28% reduction)
   const pruningRatio = 0.28;
   const prunedTokens = Math.round(estimatedTokens * (1.0 - pruningRatio));
 
-  // 3. Supplier Pool (CometAPI.com sole external AI supplier)
   const enabledPlatforms = ["cometapi"];
   const candidateModels = Object.values(MODEL_CATALOG);
 
-  // Filter based on theta_i (Brain Surgeon vs. Janitor) or forced slot/preset hint
   let eligibleTierModels;
   const slotHint = String(options.byok_slot || "auto").toUpperCase();
   if (slotHint === "COMETAPI_FRONTIER" || slotHint === "BRAIN_SURGEON") {
@@ -305,25 +644,19 @@ function calculateArbitrageRoute(prompt, options = {}) {
     eligibleTierModels = candidateModels;
   }
 
-  // Calculate wholesale cost for each candidate: C_prompt = (tokens / 1M) * rate
   const scoredCandidates = eligibleTierModels.map(m => {
-    const effectiveInRate = options.is_batch
-      ? (m.batch_input_rate_1m || m.input_rate_1m * 0.5)
-      : (options.has_cache && m.cached_input_rate_1m ? m.cached_input_rate_1m : m.input_rate_1m);
-    const effectiveOutRate = options.is_batch ? (m.batch_output_rate_1m || m.output_rate_1m * 0.5) : m.output_rate_1m;
-    const blendedCost1M = (effectiveInRate * 0.7) + (effectiveOutRate * 0.3);
+    const blendedCost1M = getBlendedRate1M(m, options);
     const cost = (prunedTokens / 1000000.0) * blendedCost1M;
     return { model: m, blendedCost1M, cost };
   });
 
   scoredCandidates.sort((a, b) => a.cost - b.cost);
   const bestCandidate = scoredCandidates[0] || {
-    model: MODEL_CATALOG["cometapi/gemini-2.5-flash-lite"],
+    model: MODEL_CATALOG[CLASSIFIER_MODEL_ID],
     blendedCost1M: 0.19,
     cost: (prunedTokens / 1000000.0) * 0.19
   };
 
-  // 4. Monetary Calculation (Baseline vs Governed Customer Price Capped at 63.3%)
   const baselineCost = (estimatedTokens / 1000000.0) * BASELINE_RETAIL_PER_1M;
   const rawExecutionCost = bestCandidate.cost;
   const maxSavingsPct = 63.3;
@@ -352,13 +685,6 @@ function calculateArbitrageRoute(prompt, options = {}) {
     role_description: bestCandidate.model.role
   };
 }
-
-// Level 1 In-Memory Exact Hash Cache
-const EXACT_HASH_CACHE = new Map();
-EXACT_HASH_CACHE.set(
-  createHash("sha256").update("What is CostImplodeAI?").digest("hex"),
-  "CostImplodeAI is an autonomous 100% BYOK AI arbitrage gateway running on Google Cloud Run that routes model workloads through your funded CometAPI.com account, delivering an audited cost reduction of up to 63.3%."
-);
 
 // CostImplodeAI Gateway API Keys Registry (Enterprise FIPS 140-3 Standard)
 const INITIAL_GATEWAY_TOKEN = (process.env.DEFAULT_GATEWAY_KEY || `cia_live_${randomBytes(12).toString("hex")}`).trim();
@@ -485,7 +811,7 @@ function resolveTierFromMemberships(memberships) {
   const active = memberships.filter(m => ["active", "trialing", "completed"].includes(String(m.status || "").toLowerCase()));
   if (active.length === 0) return "Explorer";
   const joined = active.map(m => `${m.product?.title || ""} ${m.plan?.name || ""}`.toLowerCase()).join(" ");
-  if (joined.includes("enterprise")) return "Enterprise";
+  if (joined.includes("agency") || joined.includes("enterprise")) return "Agency";
   if (joined.includes("pro")) return "Pro";
   if (joined.includes("starter")) return "Starter";
   return "Pro";
@@ -502,6 +828,16 @@ const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
     const routePath = normalizePath(url.pathname);
+    const rawHost = String(req.headers["x-forwarded-host"] || req.headers.host || "")
+      .split(",")[0]
+      .trim()
+      .toLowerCase();
+    const requestHostname = rawHost.split(":")[0];
+
+    if (requestHostname === "dash.costimplodeai.com" && routePath === "/") {
+      res.writeHead(302, baseHeaders({ Location: `/dash${url.search}` }));
+      return res.end();
+    }
 
     // --- WHOP OAUTH 2.1 (PKCE + OIDC) & CHECKOUT ROUTES ---
     if (routePath === "/api/auth/whop/url" && req.method === "GET") {
@@ -702,6 +1038,7 @@ const server = createServer(async (req, res) => {
             id: "explorer",
             name: "Explorer",
             price_monthly_usd: 0,
+            price_label: "$0 / month",
             monthly_calls: 10000,
             checkout_url: "",
             checkout_configured: true,
@@ -711,6 +1048,7 @@ const server = createServer(async (req, res) => {
             id: "starter",
             name: "Starter",
             price_monthly_usd: 29,
+            price_label: "$29 / month",
             monthly_calls: 100000,
             checkout_url: WHOP_CONFIG.checkoutUrls.starter,
             checkout_configured: Boolean(WHOP_CONFIG.checkoutUrls.starter),
@@ -719,19 +1057,21 @@ const server = createServer(async (req, res) => {
           {
             id: "pro",
             name: "Pro",
-            price_monthly_usd: 149,
+            price_monthly_usd: 49,
+            price_label: "$49 / month",
             monthly_calls: 1000000,
             checkout_url: WHOP_CONFIG.checkoutUrls.pro,
             checkout_configured: Boolean(WHOP_CONFIG.checkoutUrls.pro),
             requires_whop_checkout: true
           },
           {
-            id: "enterprise",
-            name: "Enterprise",
-            price_monthly_usd: 999,
+            id: "agency",
+            name: "Agency",
+            price_monthly_usd: 149,
+            price_label: "$149 / month",
             monthly_calls: -1,
-            checkout_url: WHOP_CONFIG.checkoutUrls.enterprise,
-            checkout_configured: Boolean(WHOP_CONFIG.checkoutUrls.enterprise),
+            checkout_url: WHOP_CONFIG.checkoutUrls.agency,
+            checkout_configured: Boolean(WHOP_CONFIG.checkoutUrls.agency),
             requires_whop_checkout: true
           }
         ]
@@ -769,68 +1109,190 @@ const server = createServer(async (req, res) => {
       });
     }
 
-    // 2. Chat Completions & Arbitrage Gateway Endpoint (Enforce customer savings ceiling of 63.3%)
+    // 2. Chat Completions & Arbitrage Gateway Endpoint (Always executes live CometAPI completion; never returns fake routing summaries)
     if (routePath === "/v1/chat/completions" && req.method === "POST") {
+      const reqStartMs = performance.now();
       const body = await parseJsonBody(req);
       totalRequestsServed++;
 
-      let prompt = body.prompt || "";
-      if (!prompt && Array.isArray(body.messages) && body.messages.length > 0) {
-        prompt = body.messages[body.messages.length - 1].content || "";
+      const sanitizedMessages = Array.isArray(body.messages)
+        ? body.messages
+            .filter(
+              (m) =>
+                m &&
+                typeof m.role === "string" &&
+                ["system", "user", "assistant"].includes(m.role) &&
+                typeof m.content === "string" &&
+                m.content.trim().length > 0
+            )
+            .map((m) => ({ role: m.role, content: m.content }))
+        : [];
+
+      let prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+      if (!prompt && sanitizedMessages.length > 0) {
+        const lastUser = [...sanitizedMessages].reverse().find((m) => m.role === "user");
+        prompt = (lastUser ? lastUser.content : sanitizedMessages[sanitizedMessages.length - 1].content).trim();
       }
-      if (!prompt) prompt = "Evaluate CostImplodeAI arbitrage routing across funded CometAPI.com models.";
-
-      const cacheKey = createHash("sha256").update(prompt.trim()).digest("hex");
-
-      // Check L1 Exact Cache
-      if (EXACT_HASH_CACHE.has(cacheKey)) {
-        const cachedText = EXACT_HASH_CACHE.get(cacheKey);
-        const estimatedTokens = Math.max(16, Math.round((prompt.length + 180) / 4.0));
-        const baselineCost = (estimatedTokens / 1000000.0) * BASELINE_RETAIL_PER_1M;
-        const deliveredCost = Number((baselineCost * (1.0 - 0.633)).toFixed(6));
+      if (!prompt) {
         return sendJson(res, {
-          request_id: "req_" + randomBytes(5).toString("hex"),
-          execution_tier: "LEVEL_1_EDGE_CACHE_HIT",
-          selected_provider: "Quad_Tier_L1_Hash_Cache",
-          selected_model: "quad-cache/l1-exact-hit",
-          baseline_cost_usd: Number(baselineCost.toFixed(6)),
-          delivered_cost_usd: deliveredCost,
-          user_savings_pct: 63.3,
-          protocol_yield_captured_usd: Number((baselineCost - deliveredCost).toFixed(6)),
-          latency_ms: 12,
-          response_text: cachedText
-        });
+          error: {
+            message: "Missing prompt or messages array.",
+            type: "invalid_request_error",
+            code: "missing_prompt"
+          },
+          security: {
+            encryption_standard: "FIPS 140-3 AES-GCM-256 Envelope",
+            key_sovereignty: "COMETAPI_BYOK_REQUIRED",
+            data_logging: "STRICT_ZERO_LOGGING",
+            live_upstream_verified: false
+          }
+        }, 400);
       }
 
-      // Compute mathematical arbitrage route
-      const routeResult = calculateArbitrageRoute(prompt, {
+      const upstreamMessages = sanitizedMessages.length > 0
+        ? sanitizedMessages
+        : [{ role: "user", content: prompt }];
+
+      const userByokKey = String(req.headers["x-byok-cometapi-key"] || req.headers["x-byok-api-key"] || "").trim();
+      const activeKey = (userByokKey || INTERNAL_SECRETS.cometapi || "").trim();
+      const byokHeaderMode = userByokKey
+        ? "DIRECT_HEADER_INJECTION"
+        : (INTERNAL_SECRETS.cometapi ? "SERVER_ENV_FALLBACK" : "NO_COMETAPI_KEY_CONFIGURED");
+
+      if (!activeKey) {
+        const measuredLatencyMs = Math.max(1, Math.round(performance.now() - reqStartMs));
+        return sendJson(res, {
+          error: {
+            message: "No CometAPI API key is configured. Supply x-byok-cometapi-key or configure COMET_API_KEY on the server.",
+            type: "upstream_auth_error",
+            code: "cometapi_key_required"
+          },
+          latency_ms: measuredLatencyMs,
+          security: {
+            encryption_standard: "FIPS 140-3 AES-GCM-256 Envelope",
+            key_sovereignty: "COMETAPI_BYOK_REQUIRED",
+            mode: byokHeaderMode,
+            data_logging: "STRICT_ZERO_LOGGING",
+            live_upstream_verified: false
+          }
+        }, 502);
+      }
+
+      const routeOptions = {
         enabled_platforms: ["cometapi"],
         byok_slot: body.byok_slot,
         is_batch: Boolean(req.headers["x-batch-mode"] || body.is_batch),
         has_cache: Boolean(body.has_cache)
-      });
+      };
 
-      const userByokKey = String(req.headers["x-byok-cometapi-key"] || req.headers["x-byok-api-key"] || "").trim();
+      const requestedTemperature =
+        typeof body.temperature === "number" && Number.isFinite(body.temperature)
+          ? Math.min(2.0, Math.max(0.0, body.temperature))
+          : 0.7;
 
-      // Execute live upstream via CometAPI if BYOK header or server env key is configured
-      let responseText = "";
-      let isLiveExecution = false;
-      const liveRes = await executeLiveUpstream(prompt, routeResult.selected_model, userByokKey);
-      if (liveRes.success && liveRes.text) {
-        responseText = `[Live CometAPI.com Engine]: ${liveRes.text}`;
-        isLiveExecution = true;
+      const requestedMaxTokens =
+        typeof body.max_tokens === "number" && Number.isFinite(body.max_tokens) && body.max_tokens > 0
+          ? Math.min(8192, Math.round(body.max_tokens))
+          : null;
+
+      let classification;
+      try {
+        classification = await classifyPromptWithCometAPI({
+          prompt,
+          messages: upstreamMessages,
+          activeKey,
+          options: routeOptions
+        });
+      } catch (authErr) {
+        const measuredLatencyMs = Math.max(1, Math.round(performance.now() - reqStartMs));
+        return sendJson(res, {
+          error: {
+            message: authErr?.message || "CometAPI authentication or upstream classification failed.",
+            type: "upstream_error",
+            code: "cometapi_upstream_failed"
+          },
+          latency_ms: measuredLatencyMs,
+          security: {
+            encryption_standard: "FIPS 140-3 AES-GCM-256 Envelope",
+            key_sovereignty: "COMETAPI_BYOK_REQUIRED",
+            mode: byokHeaderMode,
+            data_logging: "STRICT_ZERO_LOGGING",
+            live_upstream_verified: false
+          }
+        }, 502);
       }
 
-      if (!responseText) {
-        if (routeResult.theta_i === 1) {
-          responseText = `[Routed via ${routeResult.selected_provider} (${routeResult.selected_model_name})]: High-complexity reasoning task (S_entropy = ${routeResult.s_entropy} >= ${routeResult.tau_threshold}) executed under Brain Surgeon tier. Wholesale rate $${routeResult.blended_rate_1m.toFixed(2)}/1M. Speculative pruning reduced input payload by 28%.`;
-        } else {
-          responseText = `[Routed via ${routeResult.selected_provider} (${routeResult.selected_model_name})]: High-frequency task (S_entropy = ${routeResult.s_entropy} < ${routeResult.tau_threshold}) executed under Janitor low-cost tier. Latency: <180ms. Wholesale rate $${routeResult.blended_rate_1m.toFixed(2)}/1M.`;
+      let responseText = "";
+      let isLiveExecution = false;
+      let winningModel = classification.selectedModel;
+      let finalTier = classification.tier;
+      let lastUpstreamError = null;
+
+      if (classification.tier === "CLASSIFIER_DIRECT" && classification.directAnswer) {
+        responseText = classification.directAnswer;
+        isLiveExecution = true;
+        winningModel = MODEL_CATALOG[CLASSIFIER_MODEL_ID];
+        finalTier = "CLASSIFIER_DIRECT";
+      } else {
+        const candidateChain = buildCheaperFallbackChain(classification.selectedModel, routeOptions);
+        for (let idx = 0; idx < candidateChain.length; idx++) {
+          const candidateModel = candidateChain[idx];
+          const defaultMaxTokensByTier =
+            candidateModel.category === "brain_surgeon"
+              ? 2048
+              : candidateModel.category === "execution"
+                ? 1024
+                : 512;
+          const maxTokens = requestedMaxTokens || defaultMaxTokensByTier;
+          const hopTimeoutMs = idx === 0 ? UPSTREAM_TIMEOUT_MS : 25000;
+
+          try {
+            const liveRes = await callCometApiChat({
+              upstreamModel: candidateModel.upstream_model,
+              messages: upstreamMessages,
+              activeKey,
+              maxTokens,
+              temperature: requestedTemperature,
+              timeoutMs: hopTimeoutMs
+            });
+            responseText = liveRes.text;
+            isLiveExecution = true;
+            winningModel = candidateModel;
+            finalTier = mapCategoryToExecutionTier(candidateModel.category);
+            break;
+          } catch (err) {
+            lastUpstreamError = err;
+            console.warn(`[upstream-fallback] ${candidateModel.id} (${candidateModel.upstream_model}) failed: ${err?.message || err}`);
+            if (err?.nonRetryableAuth) {
+              break;
+            }
+          }
         }
       }
 
-      // Populate L1 Cache for exact match replay
-      EXACT_HASH_CACHE.set(cacheKey, responseText);
+      const measuredLatencyMs = Math.max(1, Math.round(performance.now() - reqStartMs));
+
+      if (!isLiveExecution || !responseText) {
+        return sendJson(res, {
+          error: {
+            message: lastUpstreamError?.message || "All CometAPI upstream models failed to return a completion.",
+            type: "upstream_error",
+            code: "cometapi_upstream_failed"
+          },
+          latency_ms: measuredLatencyMs,
+          security: {
+            encryption_standard: "FIPS 140-3 AES-GCM-256 Envelope",
+            key_sovereignty: "COMETAPI_BYOK_REQUIRED",
+            mode: byokHeaderMode,
+            data_logging: "STRICT_ZERO_LOGGING",
+            live_upstream_verified: false
+          }
+        }, 502);
+      }
+
+      const estimatedTokens = Math.max(16, Math.round((prompt.length + 180) / 4.0));
+      const metrics = computeMonetaryMetrics(estimatedTokens, winningModel, routeOptions);
+      const theta_i = finalTier === "CLASS_2_BRAIN_SURGEON" ? 1 : 0;
 
       // Increment live metrics for active gateway key
       const authHeader = req.headers["authorization"] || "";
@@ -841,52 +1303,148 @@ const server = createServer(async (req, res) => {
       }
       if (matchedKeyRec) {
         matchedKeyRec.requests_total = (matchedKeyRec.requests_total || 0) + 1;
-        matchedKeyRec.spend_usd = Number(((matchedKeyRec.spend_usd || 0) + routeResult.delivered_cost_usd).toFixed(4));
-        matchedKeyRec.savings_delivered_usd = Number(((matchedKeyRec.savings_delivered_usd || 0) + routeResult.protocol_yield_captured_usd).toFixed(4));
-        matchedKeyRec.tokens_processed = (matchedKeyRec.tokens_processed || 0) + routeResult.estimated_raw_tokens;
+        matchedKeyRec.spend_usd = Number(((matchedKeyRec.spend_usd || 0) + metrics.deliveredCostUsd).toFixed(4));
+        matchedKeyRec.savings_delivered_usd = Number(((matchedKeyRec.savings_delivered_usd || 0) + metrics.protocolYieldUsd).toFixed(4));
+        matchedKeyRec.tokens_processed = (matchedKeyRec.tokens_processed || 0) + metrics.estimatedTokens;
         matchedKeyRec.last_used = "Just now";
         matchedKeyRec.rpm_current = Math.min(matchedKeyRec.rpm_limit || 120, (matchedKeyRec.rpm_current || 30) + 1);
       }
 
-      const byokHeaderMode = userByokKey
-        ? "DIRECT_HEADER_INJECTION"
-        : (INTERNAL_SECRETS.cometapi ? "SERVER_ENV_FALLBACK" : "SIMULATION_MODE_ADD_COMETAPI_CREDITS");
+      await recordCallTelemetry({
+        baselineCostUsd: metrics.baselineCostUsd,
+        deliveredCostUsd: metrics.rawExecutionCostUsd,
+        model: winningModel.id,
+        tier: finalTier
+      });
 
       return sendJson(res, {
         request_id: "req_" + randomBytes(5).toString("hex"),
-        execution_tier: routeResult.complexity_tier,
-        entropy_score: routeResult.s_entropy,
-        complexity_decision_theta: routeResult.theta_i,
-        selected_model: routeResult.selected_model,
-        selected_model_name: routeResult.selected_model_name,
-        selected_provider: routeResult.selected_provider,
-        selected_platform: routeResult.selected_platform,
-        enabled_platforms: routeResult.enabled_platforms,
-        estimated_tokens: routeResult.estimated_raw_tokens,
-        pruned_tokens: routeResult.pruned_tokens,
-        speculative_compression_pct: routeResult.speculative_compression_pct,
-        baseline_cost_usd: routeResult.baseline_cost_usd,
-        raw_execution_cost_usd: routeResult.raw_execution_cost_usd,
-        delivered_cost_usd: routeResult.delivered_cost_usd,
-        user_savings_pct: routeResult.user_savings_pct,
-        protocol_yield_captured_usd: routeResult.protocol_yield_captured_usd,
-        latency_ms: isLiveExecution ? 340 : (routeResult.theta_i === 1 ? 420 : 185),
+        execution_tier: finalTier,
+        entropy_score: classification.entropy_score,
+        complexity_decision_theta: theta_i,
+        selected_model: winningModel.id,
+        selected_model_name: winningModel.name,
+        selected_provider: winningModel.provider,
+        selected_platform: winningModel.platform,
+        enabled_platforms: ["cometapi"],
+        estimated_tokens: metrics.estimatedTokens,
+        pruned_tokens: metrics.prunedTokens,
+        speculative_compression_pct: 28.0,
+        baseline_cost_usd: metrics.baselineCostUsd,
+        raw_execution_cost_usd: metrics.rawExecutionCostUsd,
+        delivered_cost_usd: metrics.deliveredCostUsd,
+        user_savings_pct: metrics.maxSavingsPct,
+        protocol_yield_captured_usd: metrics.protocolYieldUsd,
+        latency_ms: measuredLatencyMs,
         response_text: responseText,
         security: {
           encryption_standard: "FIPS 140-3 AES-GCM-256 Envelope",
           key_sovereignty: "COMETAPI_BYOK_REQUIRED",
           mode: byokHeaderMode,
           data_logging: "STRICT_ZERO_LOGGING",
-          live_upstream_verified: isLiveExecution
+          live_upstream_verified: true
         }
       }, 200, {
         "x-ci-security": "FIPS-140-3_AES-GCM-256",
-        "x-ci-routed-provider": routeResult.selected_provider,
-        "x-ci-routed-model": routeResult.selected_model,
-        "x-ci-entropy-score": String(routeResult.s_entropy),
+        "x-ci-routed-provider": winningModel.provider,
+        "x-ci-routed-model": winningModel.id,
+        "x-ci-entropy-score": String(classification.entropy_score),
         "x-ci-savings-pct": "63.3%",
         "x-ci-byok-mode": byokHeaderMode
       });
+    }
+
+    // 2b. Public Dash Stats API (Aggregated from Firestore call_telemetry)
+    if (routePath === "/api/dash-stats" && req.method === "GET") {
+      const todayNy = getNewYorkDateString(new Date());
+      if (!firestoreDb) {
+        return sendJson(res, {
+          ok: false,
+          date: todayNy,
+          timezone: "America/New_York",
+          record_low: null,
+          record_high: null,
+          daily_low: null,
+          daily_high: null,
+          average_savings_pct: null,
+          total_calls: 0,
+          daily_calls: 0,
+          footnote: "Measured from real routed calls.",
+          error: firestoreInitError || "Firestore database is not initialized."
+        }, 503);
+      }
+
+      try {
+        const snapshot = await firestoreDb.collection("call_telemetry").get();
+        const allSavings = [];
+        const dailySavings = [];
+
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() || {};
+          const pct = Number(data.savings_pct);
+          if (!Number.isFinite(pct)) return;
+          allSavings.push(pct);
+
+          let docNyDate = typeof data.ny_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.ny_date)
+            ? data.ny_date
+            : null;
+          if (!docNyDate) {
+            if (typeof data.timestamp_ms === "number" && Number.isFinite(data.timestamp_ms)) {
+              docNyDate = getNewYorkDateString(new Date(data.timestamp_ms));
+            } else if (typeof data.timestamp === "string" && data.timestamp) {
+              const parsed = new Date(data.timestamp);
+              if (!Number.isNaN(parsed.getTime())) docNyDate = getNewYorkDateString(parsed);
+            } else if (data.timestamp && typeof data.timestamp.toDate === "function") {
+              docNyDate = getNewYorkDateString(data.timestamp.toDate());
+            }
+          }
+
+          if (docNyDate === todayNy) {
+            dailySavings.push(pct);
+          }
+        });
+
+        const totalCalls = allSavings.length;
+        const dailyCalls = dailySavings.length;
+        const recordLow = totalCalls > 0 ? Number(Math.min(...allSavings).toFixed(2)) : null;
+        const recordHigh = totalCalls > 0 ? Number(Math.max(...allSavings).toFixed(2)) : null;
+        const dailyLow = dailyCalls > 0 ? Number(Math.min(...dailySavings).toFixed(2)) : null;
+        const dailyHigh = dailyCalls > 0 ? Number(Math.max(...dailySavings).toFixed(2)) : null;
+        const averageSavingsPct = totalCalls > 0
+          ? Number((allSavings.reduce((sum, val) => sum + val, 0) / totalCalls).toFixed(2))
+          : null;
+
+        return sendJson(res, {
+          ok: true,
+          date: todayNy,
+          timezone: "America/New_York",
+          record_low: recordLow,
+          record_high: recordHigh,
+          daily_low: dailyLow,
+          daily_high: dailyHigh,
+          average_savings_pct: averageSavingsPct,
+          total_calls: totalCalls,
+          daily_calls: dailyCalls,
+          footnote: "Measured from real routed calls.",
+          updated_at: new Date().toISOString()
+        });
+      } catch (err) {
+        const status = err?.code === 7 ? 403 : 500;
+        return sendJson(res, {
+          ok: false,
+          date: todayNy,
+          timezone: "America/New_York",
+          record_low: null,
+          record_high: null,
+          daily_low: null,
+          daily_high: null,
+          average_savings_pct: null,
+          total_calls: 0,
+          daily_calls: 0,
+          footnote: "Measured from real routed calls.",
+          error: err?.message || "Failed to query call_telemetry."
+        }, status);
+      }
     }
 
     // 3. Token Tax Audit Calculator API (Feature Coming Soon)

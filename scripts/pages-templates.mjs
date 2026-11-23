@@ -767,7 +767,7 @@ ${renderSharedHeader('/docs/byok', cometAffiliateUrl)}
       <section id="whop-membership">
         <h2><span>🪪</span> 4. Whop OAuth Login &amp; Plan Activation</h2>
         <p>
-          User accounts, session sign-in, and paid subscription billing (Starter $29/mo, Pro $149/mo, Enterprise $999+/mo) are handled securely through <strong>Whop</strong>:
+          User accounts, session sign-in, and paid subscription billing (Starter $29/mo, Pro $49/mo, Agency $149/mo) are handled securely through <strong>Whop</strong>:
         </p>
         <ul>
           <li><strong>Whop OAuth 2.1 (PKCE):</strong> Click <em>Sign in with Whop</em> in the top navbar or pricing cards to verify your membership inside a secure popup without sharing passwords with CostImplodeAI.</li>
@@ -1336,7 +1336,7 @@ ${renderSharedHeader('/terms.html', cometAffiliateUrl)}
       <section id="whop-billing">
         <h2><span>🪪</span> 4. Whop Subscriptions &amp; Account Authentication</h2>
         <p>
-          Platform access tiers (Starter, Pro, Enterprise) and developer login are managed via <strong>Whop OAuth</strong> and <strong>Whop Checkout</strong>. Subscription renewals, cancellations, and receipts are governed by your Whop membership settings and Whop's checkout terms.
+          Platform access tiers (Explorer, Starter, Pro, Agency) and developer login are managed via <strong>Whop OAuth</strong> and <strong>Whop Checkout</strong>. Subscription renewals, cancellations, and receipts are governed by your Whop membership settings and Whop's checkout terms.
         </p>
       </section>
 
@@ -1539,3 +1539,453 @@ ${renderSharedFooter(cometAffiliateUrl)}
 </body>
 </html>`;
 }
+
+export function dashHtml(origin, cometAffiliateUrl) {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CostImplodeAI — Live Telemetry &amp; Savings Benchmarks</title>
+  <meta name="description" content="Public verified savings telemetry measured from real CostImplodeAI routed calls, including record and daily highs and lows." />
+  <link rel="canonical" href="${origin}/dash" />
+  <link rel="icon" type="image/png" sizes="512x512" href="/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    ${getSharedStyles()}
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: radial-gradient(circle at 50% -10%, rgba(255, 26, 10, 0.10), transparent 55%), #030712;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .dash-topbar {
+      border-bottom: 1px solid var(--border);
+      background: rgba(3, 7, 18, 0.92);
+      backdrop-filter: blur(12px);
+    }
+    .dash-topbar-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+    .dash-nav-links {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+    .dash-nav-links a {
+      color: var(--muted);
+      font-size: 13.5px;
+      font-weight: 600;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: color .15s;
+    }
+    .dash-nav-links a:hover {
+      color: var(--text);
+      text-decoration: underline;
+      text-underline-offset: 4px;
+    }
+    .dash-main {
+      flex: 1;
+      max-width: 1120px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 48px 24px 64px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .dash-hero-frame {
+      background: #0d1117;
+      border: 1px solid #1f2937;
+      border-radius: 16px;
+      padding: 40px;
+      position: relative;
+      overflow: hidden;
+    }
+    .dash-hero-frame::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, #ff1a0a, rgba(255, 59, 36, 0.4), transparent);
+    }
+    .dash-hero-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+      flex-wrap: wrap;
+      padding-bottom: 28px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    }
+    .dash-brand-lockup {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .dash-brand-lockup img {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      object-fit: cover;
+      flex-shrink: 0;
+    }
+    .dash-brand-title {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: #f9fafb;
+      line-height: 1.15;
+    }
+    .dash-brand-meta {
+      margin-top: 4px;
+      font-size: 13px;
+      color: #9ca3af;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .dash-date-block {
+      text-align: right;
+    }
+    .dash-date-label {
+      font-size: 12px;
+      color: #9ca3af;
+      font-weight: 600;
+    }
+    .dash-date-value {
+      font-family: 'JetBrains Mono', var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: 16px;
+      font-weight: 700;
+      color: #f9fafb;
+      margin-top: 2px;
+    }
+    .dash-anchor-row {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 32px;
+      padding: 36px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+      flex-wrap: wrap;
+    }
+    .dash-primary-kicker {
+      font-size: 13px;
+      font-weight: 600;
+      color: #9ca3af;
+      margin-bottom: 8px;
+    }
+    .dash-primary-metric {
+      font-family: 'JetBrains Mono', var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: clamp(3rem, 6vw, 4.75rem);
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -0.04em;
+      color: #4ade80;
+    }
+    .dash-calls-block {
+      text-align: right;
+    }
+    .dash-calls-metric {
+      font-family: 'JetBrains Mono', var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: clamp(2rem, 4vw, 3rem);
+      font-weight: 800;
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+      color: #f9fafb;
+    }
+    .dash-kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 20px;
+      padding: 28px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    }
+    .dash-kpi-cell {
+      padding: 18px 20px;
+      background: #070b14;
+      border: 1px solid #1f2937;
+      border-radius: 12px;
+    }
+    .dash-kpi-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #9ca3af;
+      margin-bottom: 8px;
+    }
+    .dash-kpi-value {
+      font-family: 'JetBrains Mono', var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: 28px;
+      font-weight: 800;
+      line-height: 1.15;
+      color: #f9fafb;
+    }
+    .dash-kpi-sub {
+      margin-top: 6px;
+      font-size: 12px;
+      color: #6b7280;
+    }
+    .dash-hero-footer {
+      padding-top: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .dash-footnote {
+      font-size: 13.5px;
+      font-weight: 600;
+      color: #cbd5e1;
+    }
+    .dash-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .dash-refresh-btn {
+      background: #111827;
+      color: #f9fafb;
+      border: 1px solid #374151;
+      border-radius: 8px;
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background .15s, border-color .15s;
+    }
+    .dash-refresh-btn:hover {
+      background: #1f2937;
+      border-color: #4b5563;
+    }
+    .dash-notice {
+      margin-top: 20px;
+      padding: 14px 18px;
+      border-radius: 10px;
+      border: 1px solid #1f2937;
+      background: #070b14;
+      color: #cbd5e1;
+      font-size: 13.5px;
+      display: none;
+    }
+    .dash-notice.visible {
+      display: block;
+    }
+    .dash-notice a {
+      color: #ff3b24;
+      font-weight: 700;
+      text-decoration: underline;
+    }
+    @media (max-width: 900px) {
+      .dash-kpi-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .dash-nav-links {
+        display: none;
+      }
+    }
+    @media (max-width: 600px) {
+      .dash-hero-frame {
+        padding: 24px 20px;
+      }
+      .dash-date-block, .dash-calls-block {
+        text-align: left;
+      }
+      .dash-kpi-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<header class="dash-topbar">
+  <div class="dash-topbar-inner">
+    <a href="/" class="logo" aria-label="CostImplodeAI Home">
+      <img src="/costimplode-mark.png" alt="CostImplodeAI" class="logo-mark-img" />
+      <span class="logo-wordmark" style="font-size:15px;">CostImplodeAI</span>
+    </a>
+
+    <nav class="dash-nav-links" aria-label="Primary">
+      <a href="/#calculator">Simulator</a>
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs/keys">API Keys</a>
+      <a href="/docs/api">Docs</a>
+    </nav>
+
+    <a href="/" class="btn-return-home" style="white-space:nowrap;flex-shrink:0;">Open Gateway</a>
+  </div>
+</header>
+
+<main class="dash-main">
+  <section class="dash-hero-frame" aria-label="CostImplodeAI Live Savings Telemetry">
+    <div class="dash-hero-header">
+      <div class="dash-brand-lockup">
+        <img src="/costimplode-mark.png" alt="CostImplodeAI Logo" />
+        <div>
+          <h1 class="dash-brand-title">CostImplodeAI</h1>
+          <div class="dash-brand-meta">
+            <span>Public Routing Telemetry</span>
+            <span aria-hidden="true">&middot;</span>
+            <span>Raw Savings Before Display Cap</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="dash-date-block">
+        <div class="dash-date-label">Reporting Date (America/New_York)</div>
+        <div class="dash-date-value" id="dashDateDisplay">--</div>
+      </div>
+    </div>
+
+    <div class="dash-anchor-row">
+      <div>
+        <div class="dash-primary-kicker">Current Average Savings</div>
+        <div class="dash-primary-metric" id="statAvgSavings">--%</div>
+      </div>
+
+      <div class="dash-calls-block">
+        <div class="dash-primary-kicker">Total Routed Calls</div>
+        <div class="dash-calls-metric" id="statTotalCalls">--</div>
+      </div>
+    </div>
+
+    <div class="dash-kpi-grid">
+      <div class="dash-kpi-cell">
+        <div class="dash-kpi-label">Record High</div>
+        <div class="dash-kpi-value" id="statRecordHigh">--%</div>
+        <div class="dash-kpi-sub">All-time peak raw savings</div>
+      </div>
+
+      <div class="dash-kpi-cell">
+        <div class="dash-kpi-label">Record Low</div>
+        <div class="dash-kpi-value" id="statRecordLow">--%</div>
+        <div class="dash-kpi-sub">All-time floor raw savings</div>
+      </div>
+
+      <div class="dash-kpi-cell">
+        <div class="dash-kpi-label">Daily High</div>
+        <div class="dash-kpi-value" id="statDailyHigh">--%</div>
+        <div class="dash-kpi-sub" id="statDailyHighSub">Today (America/New_York)</div>
+      </div>
+
+      <div class="dash-kpi-cell">
+        <div class="dash-kpi-label">Daily Low</div>
+        <div class="dash-kpi-value" id="statDailyLow">--%</div>
+        <div class="dash-kpi-sub" id="statDailyLowSub">Today (America/New_York)</div>
+      </div>
+    </div>
+
+    <div id="dashStatusNotice" class="dash-notice" role="status"></div>
+
+    <div class="dash-hero-footer">
+      <p class="dash-footnote">Measured from real routed calls.</p>
+      <div class="dash-actions">
+        <button type="button" id="refreshDashBtn" class="dash-refresh-btn">Refresh Stats</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+${renderSharedFooter(cometAffiliateUrl)}
+
+<script>
+  (function () {
+    function formatPct(val) {
+      return typeof val === "number" && Number.isFinite(val) ? val.toFixed(2) + "%" : "--%";
+    }
+
+    function formatCount(val) {
+      return typeof val === "number" && Number.isFinite(val) ? val.toLocaleString("en-US") : "--";
+    }
+
+    function formatDisplayDate(nyDateStr) {
+      if (typeof nyDateStr === "string" && /^\\d{4}-\\d{2}-\\d{2}$/.test(nyDateStr)) {
+        const parts = nyDateStr.split("-").map(Number);
+        const dt = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 12, 0, 0));
+        return new Intl.DateTimeFormat("en-US", {
+          timeZone: "UTC",
+          year: "numeric",
+          month: "long",
+          day: "numeric"
+        }).format(dt);
+      }
+      return new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        year: "numeric",
+        month: "long",
+        day: "numeric"
+      }).format(new Date());
+    }
+
+    async function loadDashStats() {
+      const btn = document.getElementById("refreshDashBtn");
+      const notice = document.getElementById("dashStatusNotice");
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Refreshing...";
+      }
+
+      try {
+        const res = await fetch("/api/dash-stats", { cache: "no-store" });
+        const data = await res.json();
+
+        document.getElementById("dashDateDisplay").textContent = formatDisplayDate(data.date);
+        document.getElementById("statAvgSavings").textContent = formatPct(data.average_savings_pct);
+        document.getElementById("statTotalCalls").textContent = formatCount(data.total_calls);
+        document.getElementById("statRecordHigh").textContent = formatPct(data.record_high);
+        document.getElementById("statRecordLow").textContent = formatPct(data.record_low);
+        document.getElementById("statDailyHigh").textContent = formatPct(data.daily_high);
+        document.getElementById("statDailyLow").textContent = formatPct(data.daily_low);
+
+        if (!res.ok || data.ok === false) {
+          notice.className = "dash-notice visible";
+          notice.textContent = "Telemetry store unavailable: " + (data.error || "Unable to read call_telemetry.");
+        } else if (data.total_calls === 0) {
+          notice.className = "dash-notice visible";
+          notice.innerHTML = 'No routed calls have been recorded yet. Send a completion via <code>POST /v1/chat/completions</code> or test in the <a href="/docs/api#interactive-console">API Testing Console</a>.';
+        } else if (data.daily_calls === 0) {
+          notice.className = "dash-notice visible";
+          notice.textContent = "No routed calls recorded yet for today (" + (data.date || "America/New_York") + ").";
+        } else {
+          notice.className = "dash-notice";
+          notice.textContent = "";
+        }
+      } catch (err) {
+        document.getElementById("dashDateDisplay").textContent = formatDisplayDate(null);
+        notice.className = "dash-notice visible";
+        notice.textContent = "Failed to load telemetry metrics. Please try refreshing.";
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "Refresh Stats";
+        }
+      }
+    }
+
+    document.getElementById("refreshDashBtn")?.addEventListener("click", loadDashStats);
+    loadDashStats();
+  })();
+</script>
+</body>
+</html>`;
+}
+

@@ -45,7 +45,7 @@
     {
       q: "whop",
       title: "Whop OAuth Sign-In & Subscription Checkout",
-      body: "Member login uses Whop OAuth 2.1 (PKCE + OIDC) and paid tiers ($29 Starter, $149 Pro, $999+ Enterprise) process directly through Whop Checkout links.",
+      body: "Member login uses Whop OAuth 2.1 (PKCE + OIDC) and tiers ($0/mo Explorer, $29/mo Starter, $49/mo Pro, $149/mo Agency) process directly through Whop Checkout links.",
       url: "/#pricing"
     },
     {

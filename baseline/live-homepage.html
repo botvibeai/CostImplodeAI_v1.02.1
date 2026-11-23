@@ -1367,7 +1367,7 @@ print(response.choices[0].message.content)</code></pre>
     <div class="plan-card featured">
       <div class="plan-badge">Most Popular</div>
       <div class="plan-name">Pro</div>
-      <div class="plan-price">$149 <small>/ month</small></div>
+      <div class="plan-price">$49 <small>/ month</small></div>
       <div class="plan-desc">For high-throughput SaaS and multi-tier CometAPI model arbitrage.</div>
       <ul class="plan-features">
         <li><strong>1,000,000</strong> Included Monthly Routing Calls</li>
@@ -1381,10 +1381,10 @@ print(response.choices[0].message.content)</code></pre>
       <button type="button" class="plan-btn" onclick="openSetupModal('Pro')">Subscribe via Whop Checkout</button>
     </div>
 
-    <!-- Enterprise -->
+    <!-- Agency -->
     <div class="plan-card">
-      <div class="plan-name">Enterprise</div>
-      <div class="plan-price">$999+ <small>/ month</small></div>
+      <div class="plan-name">Agency</div>
+      <div class="plan-price">$149 <small>/ month</small></div>
       <div class="plan-desc">For high-volume workloads requiring dedicated VPC isolation &amp; SLAs.</div>
       <ul class="plan-features">
         <li><strong>Custom / Unlimited</strong> Monthly Routing Calls</li>
@@ -1392,9 +1392,9 @@ print(response.choices[0].message.content)</code></pre>
         <li>Custom Entropy Rules (Up to 63.3% Cap)</li>
         <li>Single-Tenant Cloud Run Min-Instance</li>
         <li>Dedicated GCP VPC &amp; Private Slot Overrides</li>
-        <li>99.99% Uptime SLA &amp; Whop Enterprise Billing</li>
+        <li>99.99% Uptime SLA &amp; Whop Agency Billing</li>
       </ul>
-      <button type="button" class="plan-btn" onclick="openSetupModal('Enterprise')">Enterprise Whop Checkout</button>
+      <button type="button" class="plan-btn" onclick="openSetupModal('Agency')">Agency Whop Checkout</button>
     </div>
   </div>
 </section>
@@ -1451,7 +1451,7 @@ print(response.choices[0].message.content)</code></pre>
     </div>
     <div class="faq-item">
       <div class="faq-q" onclick="toggleFaq(this)">How do Whop OAuth and subscription payments work? <span class="faq-icon">+</span></div>
-      <div class="faq-a">User login and paid gateway memberships (Starter, Pro, Enterprise) are handled exclusively through <strong>Whop OAuth 2.1</strong> and <strong>Whop Checkout</strong>. CostImplodeAI charges a transparent flat platform fee via Whop while your token spend stays 100% inside your own CometAPI.com credit pool.</div>
+      <div class="faq-a">User login and paid gateway memberships (Starter, Pro, Agency) are handled exclusively through <strong>Whop OAuth 2.1</strong> and <strong>Whop Checkout</strong>. CostImplodeAI charges a transparent flat platform fee via Whop while your token spend stays 100% inside your own CometAPI.com credit pool.</div>
     </div>
     <div class="faq-item">
       <div class="faq-q" onclick="toggleFaq(this)">How does CostImplodeAI achieve up to 63.3% average savings? <span class="faq-icon">+</span></div>
@@ -1931,7 +1931,7 @@ print(response.choices[0].message.content)</code></pre>
         <a href="${escapeHtml(matched.checkout_url)}" target="_blank" rel="noopener noreferrer" class="btn-primary" style="padding:8px 16px;font-size:12px;">Proceed to Whop Checkout ↗</a>
       </div>`;
     } else {
-      const envHint = normalized === 'starter' ? 'WHOP_CHECKOUT_STARTER_URL' : (normalized === 'pro' ? 'WHOP_CHECKOUT_PRO_URL' : 'WHOP_CHECKOUT_ENTERPRISE_URL');
+      const envHint = normalized === 'starter' ? 'WHOP_CHECKOUT_STARTER_URL' : (normalized === 'pro' ? 'WHOP_CHECKOUT_PRO_URL' : 'WHOP_CHECKOUT_AGENCY_URL');
       wrap.innerHTML = `<span style="color:#fde047;">Whop Checkout link for <strong>${escapeHtml(tierName)}</strong> is not configured on this environment yet. Set <code>${envHint}</code> on your deployment or visit your Whop product dashboard.</span>`;
     }
   }

@@ -18,6 +18,11 @@ export default {
 
     const path = normalizePath(url.pathname);
 
+    if (url.hostname.toLowerCase() === "dash.costimplodeai.com" && path === "/") {
+      url.pathname = "/dash";
+      return Response.redirect(url.toString(), 302);
+    }
+
     if (path === "/api/status") return statusResponse(env);
     if (path === "/ai-search/search") return proxyAiSearch(request, env, "/search");
     if (path === "/mcp") return proxyAiSearch(request, env, "/mcp");

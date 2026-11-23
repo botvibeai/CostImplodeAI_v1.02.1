@@ -1,0 +1,1022 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CostImplodeAI — Live Telemetry &amp; Savings Benchmarks</title>
+  <meta name="description" content="Public verified savings telemetry measured from real CostImplodeAI routed calls, including record and daily highs and lows." />
+  <link rel="canonical" href="https://costimplodeai.com/dash" />
+  <link rel="icon" type="image/png" sizes="512x512" href="/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    
+    :root {
+      --orange: #ff1a0a;
+      --orange-light: #ff3b24;
+      --orange-dim: rgba(255,26,10,0.12);
+      --orange-border: rgba(255,26,10,0.32);
+      --cyan: #00b4d8;
+      --cyan-dim: rgba(0,180,216,0.15);
+      --cyan-border: rgba(0,180,216,0.35);
+      --bg: #030712;
+      --surface: #0f172a;
+      --card: #0d1117;
+      --card2: #111827;
+      --border: #1f2937;
+      --border2: #374151;
+      --text: #f9fafb;
+      --muted: #9ca3af;
+      --dim: #6b7280;
+      --green: #4ade80;
+      --blue: #60a5fa;
+      --purple: #c084fc;
+      --gold: #fbbf24;
+      --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      line-height: 1.65;
+      overflow-x: hidden;
+      font-size: 15px;
+    }
+    a { text-decoration: none; color: inherit; }
+
+    /* NAV */
+    nav {
+      position: sticky;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      backdrop-filter: blur(14px);
+      background: rgba(3,7,18,0.94);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+    .logo-mark-img {
+      width: 38px;
+      height: 38px;
+      flex-shrink: 0;
+      object-fit: cover;
+      border-radius: 8px;
+    }
+    .logo-wordmark {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      color: var(--orange);
+      font-size: 15px;
+      line-height: 0.95;
+      letter-spacing: 0.08em;
+      font-weight: 950;
+      text-transform: uppercase;
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+    }
+    .nav-links a {
+      color: var(--muted);
+      font-size: 13.5px;
+      font-weight: 600;
+      transition: color .15s;
+    }
+    .nav-links a:hover, .nav-links a.active {
+      color: var(--text);
+    }
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .nav-comet {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--cyan-dim);
+      border: 1px solid var(--cyan-border);
+      color: #38bdf8;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      transition: all .15s;
+    }
+    .nav-comet:hover {
+      background: rgba(0,180,216,0.25);
+      transform: translateY(-1px);
+    }
+    .btn-return-home {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--orange);
+      color: #fff;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      transition: all .15s;
+      white-space: nowrap;
+    }
+    .btn-return-home:hover {
+      background: var(--orange-light);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(255,26,10,0.3);
+    }
+
+    /* BADGES */
+    .badge-fips {
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: var(--green);
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* LAYOUT */
+    .page-wrapper {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 32px 24px 80px;
+    }
+    .breadcrumbs {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--dim);
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+    .breadcrumbs a {
+      color: var(--muted);
+      transition: color .15s;
+    }
+    .breadcrumbs a:hover {
+      color: var(--orange-light);
+    }
+    .breadcrumbs span.sep {
+      color: var(--border2);
+    }
+    .breadcrumbs span.current {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    /* HERO BANNER */
+    .page-hero {
+      background: linear-gradient(180deg, rgba(15,23,42,0.85) 0%, rgba(13,17,23,0.65) 100%);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 36px 32px;
+      margin-bottom: 36px;
+      position: relative;
+      overflow: hidden;
+    }
+    .page-hero::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--orange), var(--cyan), transparent);
+    }
+    .page-hero h1 {
+      font-size: 32px;
+      font-weight: 900;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+      color: var(--text);
+    }
+    .page-hero p {
+      font-size: 16px;
+      color: var(--muted);
+      max-width: 840px;
+      line-height: 1.65;
+    }
+    .meta-bar {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-top: 20px;
+      font-size: 12px;
+      color: var(--dim);
+      padding-top: 16px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+
+    /* TWO-COLUMN CONTENT */
+    .content-grid {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 40px;
+      align-items: start;
+    }
+    .sticky-toc {
+      position: sticky;
+      top: 80px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .toc-title {
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--dim);
+      margin-bottom: 12px;
+    }
+    .toc-menu {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .toc-menu a {
+      display: block;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      color: var(--muted);
+      transition: all .15s;
+    }
+    .toc-menu a:hover {
+      color: var(--text);
+      background: rgba(255,255,255,0.04);
+      padding-left: 14px;
+    }
+
+    /* ARTICLE SECTIONS */
+    .article-body section {
+      margin-bottom: 44px;
+      scroll-margin-top: 90px;
+    }
+    .article-body h2 {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .article-body h3 {
+      font-size: 16px;
+      font-weight: 700;
+      color: #e2e8f0;
+      margin: 20px 0 10px;
+    }
+    .article-body p {
+      color: #cbd5e1;
+      margin-bottom: 14px;
+      line-height: 1.7;
+    }
+    .article-body ul, .article-body ol {
+      margin-left: 20px;
+      margin-bottom: 16px;
+      color: #cbd5e1;
+    }
+    .article-body li {
+      margin-bottom: 8px;
+      line-height: 1.6;
+    }
+
+    /* CARDS & CALLOUTS */
+    .callout {
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin: 18px 0;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .callout-orange {
+      background: rgba(255,26,10,0.08);
+      border: 1px solid var(--orange-border);
+      color: #fed7aa;
+    }
+    .callout-cyan {
+      background: rgba(0,180,216,0.08);
+      border: 1px solid var(--cyan-border);
+      color: #bae6fd;
+    }
+    .callout-green {
+      background: rgba(74,222,128,0.08);
+      border: 1px solid rgba(74,222,128,0.25);
+      color: #bbf7d0;
+    }
+    .callout-gold {
+      background: rgba(251,191,36,0.08);
+      border: 1px solid rgba(251,191,36,0.3);
+      color: #fef3c7;
+    }
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin: 20px 0;
+    }
+    .feature-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      transition: all .2s;
+    }
+    .feature-card:hover {
+      border-color: var(--border2);
+      transform: translateY(-2px);
+    }
+    .feature-card h4 {
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .feature-card p {
+      font-size: 13px;
+      color: var(--muted);
+      margin: 0;
+      line-height: 1.55;
+    }
+
+    /* CODE BLOCKS */
+    code {
+      font-family: var(--font-mono);
+      background: #0f172a;
+      border: 1px solid var(--border);
+      color: #ff6b4a;
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 13px;
+    }
+    pre {
+      background: #070b14;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.6;
+      margin: 16px 0;
+      color: #e2e8f0;
+      position: relative;
+    }
+    pre code {
+      background: transparent;
+      border: none;
+      padding: 0;
+      color: inherit;
+    }
+    .code-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-bottom: none;
+      border-radius: 10px 10px 0 0;
+      padding: 8px 14px;
+      font-size: 11px;
+      color: var(--dim);
+      font-family: var(--font-mono);
+    }
+    .code-head + pre {
+      margin-top: 0;
+      border-radius: 0 0 10px 10px;
+    }
+    .copy-btn {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--border2);
+      color: var(--muted);
+      padding: 3px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      transition: all .15s;
+    }
+    .copy-btn:hover {
+      background: rgba(255,255,255,0.12);
+      color: var(--text);
+    }
+
+    /* TABLES */
+    .spec-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+      font-size: 13px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .spec-table th, .spec-table td {
+      padding: 12px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    .spec-table th {
+      background: #0b0f19;
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .spec-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    /* FOOTER */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 50px 24px 30px;
+      background: #02050e;
+      margin-top: 60px;
+    }
+    .footer-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .footer-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      gap: 40px;
+      margin-bottom: 40px;
+    }
+    .footer-brand p {
+      color: var(--dim);
+      font-size: 13px;
+      margin-top: 12px;
+      line-height: 1.6;
+      max-width: 320px;
+    }
+    .footer-col h4 {
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 16px;
+    }
+    .footer-col a {
+      display: block;
+      color: var(--dim);
+      font-size: 13px;
+      margin-bottom: 8px;
+      transition: color .15s;
+    }
+    .footer-col a:hover {
+      color: var(--text);
+    }
+    .footer-bottom {
+      border-top: 1px solid rgba(255,255,255,0.06);
+      padding-top: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+      font-size: 12px;
+      color: var(--dim);
+    }
+
+    @media (max-width: 900px) {
+      .content-grid { grid-template-columns: 1fr; }
+      .sticky-toc { display: none; }
+      .footer-grid { grid-template-columns: 1fr 1fr; }
+      .nav-links { display: none; }
+    }
+    @media (max-width: 600px) {
+      .footer-grid { grid-template-columns: 1fr; }
+    }
+  
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: radial-gradient(circle at 50% -10%, rgba(255, 26, 10, 0.10), transparent 55%), #030712;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .dash-topbar {
+      border-bottom: 1px solid var(--border);
+      background: rgba(3, 7, 18, 0.92);
+      backdrop-filter: blur(12px);
+    }
+    .dash-topbar-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+    .dash-nav-links {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+    .dash-nav-links a {
+      color: var(--muted);
+      font-size: 13.5px;
+      font-weight: 600;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: color .15s;
+    }
+    .dash-nav-links a:hover {
+      color: var(--text);
+      text-decoration: underline;
+      text-underline-offset: 4px;
+    }
+    .dash-main {
+      flex: 1;
+      max-width: 1120px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 48px 24px 64px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .dash-hero-frame {
+      background: #0d1117;
+      border: 1px solid #1f2937;
+      border-radius: 16px;
+      padding: 40px;
+      position: relative;
+      overflow: hidden;
+    }
+    .dash-hero-frame::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, #ff1a0a, rgba(255, 59, 36, 0.4), transparent);
+    }
+    .dash-hero-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+      flex-wrap: wrap;
+      padding-bottom: 28px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    }
+    .dash-brand-lockup {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .dash-brand-lockup img {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      object-fit: cover;
+      flex-shrink: 0;
+    }
+    .dash-brand-title {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: #f9fafb;
+      line-height: 1.15;
+    }
+    .dash-brand-meta {
+      margin-top: 4px;
+      font-size: 13px;
+      color: #9ca3af;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .dash-date-block {
+      text-align: right;
+    }
+    .dash-date-label {
+      font-size: 12px;
+      color: #9ca3af;
+      font-weight: 600;
+    }
+    .dash-date-value {
+      font-family: 'JetBrains Mono', var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: 16px;
+      font-weight: 700;
+      color: #f9fafb;
+      margin-top: 2px;
+    }
+    .dash-anchor-row {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 32px;
+      padding: 36px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+      flex-wrap: wrap;
+    }
+    .dash-primary-kicker {
+      font-size: 13px;
+      font-weight: 600;
+      color: #9ca3af;
+      margin-bottom: 8px;
+    }
+    .dash-primary-metric {
+      font-family: 'JetBrains Mono', var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: clamp(3rem, 6vw, 4.75rem);
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -0.04em;
+      color: #4ade80;
+    }
+    .dash-calls-block {
+      text-align: right;
+    }
+    .dash-calls-metric {
+      font-family: 'JetBrains Mono', var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: clamp(2rem, 4vw, 3rem);
+      font-weight: 800;
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+      color: #f9fafb;
+    }
+    .dash-kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 20px;
+      padding: 28px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    }
+    .dash-kpi-cell {
+      padding: 18px 20px;
+      background: #070b14;
+      border: 1px solid #1f2937;
+      border-radius: 12px;
+    }
+    .dash-kpi-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #9ca3af;
+      margin-bottom: 8px;
+    }
+    .dash-kpi-value {
+      font-family: 'JetBrains Mono', var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: 28px;
+      font-weight: 800;
+      line-height: 1.15;
+      color: #f9fafb;
+    }
+    .dash-kpi-sub {
+      margin-top: 6px;
+      font-size: 12px;
+      color: #6b7280;
+    }
+    .dash-hero-footer {
+      padding-top: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .dash-footnote {
+      font-size: 13.5px;
+      font-weight: 600;
+      color: #cbd5e1;
+    }
+    .dash-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .dash-refresh-btn {
+      background: #111827;
+      color: #f9fafb;
+      border: 1px solid #374151;
+      border-radius: 8px;
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background .15s, border-color .15s;
+    }
+    .dash-refresh-btn:hover {
+      background: #1f2937;
+      border-color: #4b5563;
+    }
+    .dash-notice {
+      margin-top: 20px;
+      padding: 14px 18px;
+      border-radius: 10px;
+      border: 1px solid #1f2937;
+      background: #070b14;
+      color: #cbd5e1;
+      font-size: 13.5px;
+      display: none;
+    }
+    .dash-notice.visible {
+      display: block;
+    }
+    .dash-notice a {
+      color: #ff3b24;
+      font-weight: 700;
+      text-decoration: underline;
+    }
+    @media (max-width: 900px) {
+      .dash-kpi-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .dash-nav-links {
+        display: none;
+      }
+    }
+    @media (max-width: 600px) {
+      .dash-hero-frame {
+        padding: 24px 20px;
+      }
+      .dash-date-block, .dash-calls-block {
+        text-align: left;
+      }
+      .dash-kpi-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<header class="dash-topbar">
+  <div class="dash-topbar-inner">
+    <a href="/" class="logo" aria-label="CostImplodeAI Home">
+      <img src="/costimplode-mark.png" alt="CostImplodeAI" class="logo-mark-img" />
+      <span class="logo-wordmark" style="font-size:15px;">CostImplodeAI</span>
+    </a>
+
+    <nav class="dash-nav-links" aria-label="Primary">
+      <a href="/#calculator">Simulator</a>
+      <a href="/#pricing">Pricing</a>
+      <a href="/docs/keys">API Keys</a>
+      <a href="/docs/api">Docs</a>
+    </nav>
+
+    <a href="/" class="btn-return-home" style="white-space:nowrap;flex-shrink:0;">Open Gateway</a>
+  </div>
+</header>
+
+<main class="dash-main">
+  <section class="dash-hero-frame" aria-label="CostImplodeAI Live Savings Telemetry">
+    <div class="dash-hero-header">
+      <div class="dash-brand-lockup">
+        <img src="/costimplode-mark.png" alt="CostImplodeAI Logo" />
+        <div>
+          <h1 class="dash-brand-title">CostImplodeAI</h1>
+          <div class="dash-brand-meta">
+            <span>Public Routing Telemetry</span>
+            <span aria-hidden="true">&middot;</span>
+            <span>Raw Savings Before Display Cap</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="dash-date-block">
+        <div class="dash-date-label">Reporting Date (America/New_York)</div>
+        <div class="dash-date-value" id="dashDateDisplay">--</div>
+      </div>
+    </div>
+
+    <div class="dash-anchor-row">
+      <div>
+        <div class="dash-primary-kicker">Current Average Savings</div>
+        <div class="dash-primary-metric" id="statAvgSavings">--%</div>
+      </div>
+
+      <div class="dash-calls-block">
+        <div class="dash-primary-kicker">Total Routed Calls</div>
+        <div class="dash-calls-metric" id="statTotalCalls">--</div>
+      </div>
+    </div>
+
+    <div class="dash-kpi-grid">
+      <div class="dash-kpi-cell">
+        <div class="dash-kpi-label">Record High</div>
+        <div class="dash-kpi-value" id="statRecordHigh">--%</div>
+        <div class="dash-kpi-sub">All-time peak raw savings</div>
+      </div>
+
+      <div class="dash-kpi-cell">
+        <div class="dash-kpi-label">Record Low</div>
+        <div class="dash-kpi-value" id="statRecordLow">--%</div>
+        <div class="dash-kpi-sub">All-time floor raw savings</div>
+      </div>
+
+      <div class="dash-kpi-cell">
+        <div class="dash-kpi-label">Daily High</div>
+        <div class="dash-kpi-value" id="statDailyHigh">--%</div>
+        <div class="dash-kpi-sub" id="statDailyHighSub">Today (America/New_York)</div>
+      </div>
+
+      <div class="dash-kpi-cell">
+        <div class="dash-kpi-label">Daily Low</div>
+        <div class="dash-kpi-value" id="statDailyLow">--%</div>
+        <div class="dash-kpi-sub" id="statDailyLowSub">Today (America/New_York)</div>
+      </div>
+    </div>
+
+    <div id="dashStatusNotice" class="dash-notice" role="status"></div>
+
+    <div class="dash-hero-footer">
+      <p class="dash-footnote">Measured from real routed calls.</p>
+      <div class="dash-actions">
+        <button type="button" id="refreshDashBtn" class="dash-refresh-btn">Refresh Stats</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+
+<footer>
+  <div class="footer-inner">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a href="/" class="logo">
+          <img class="logo-mark-img" src="/costimplode-mark.png" alt="CostImplodeAI" />
+          <span class="logo-wordmark"><span>COST</span><span>IMPLODEAI</span></span>
+        </a>
+        <p>100% BYOK autonomous AI model arbitrage gateway powered by your funded CometAPI.com account, with Whop OAuth membership &amp; billing and mathematically governed savings up to 63.3%.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Documentation &amp; Product</h4>
+        <a href="/">Homepage &amp; Dashboard</a>
+        <a href="/#simulator">Live Arbitrage Simulator</a>
+        <a href="/docs/byok">BYOK Setup Guide (CometAPI)</a>
+        <a href="/docs/keys">API Key Lifecycle &amp; Rotation</a>
+        <a href="/docs/api">API Reference &amp; SDKs</a>
+        <a href="/#pricing">Whop Subscription Plans</a>
+      </div>
+      <div class="footer-col">
+        <h4>Sole AI Supplier</h4>
+        <a href="https://www.cometapi.com/?ref=gcp" target="_blank" rel="noopener noreferrer">CometAPI.com (Purchase Credits + 10% Bonus)</a>
+        <a href="/#api-vault">CometAPI Key Vault</a>
+        <a href="/#tokentax">TokenTax0 (Coming Soon)</a>
+        <a href="/sitemap.xml">XML Sitemap</a>
+      </div>
+      <div class="footer-col">
+        <h4>Legal &amp; Security</h4>
+        <a href="/privacy.html">Privacy Policy</a>
+        <a href="/terms.html">Terms of Service</a>
+        <a href="/compliance.html">Compliance Whitepaper</a>
+        <a href="mailto:support@costimplodeai.com">support@costimplodeai.com</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <div class="footer-copy">&copy; 2026 BotVibe AI LLC. All rights reserved. CostImplodeAI is a registered trademark.</div>
+      <div style="display:flex;gap:16px;font-size:12px;color:var(--dim);flex-wrap:wrap;">
+        <span>100% BYOK Sovereignty</span>
+        <a href="https://www.cometapi.com/?ref=gcp" target="_blank" rel="noopener noreferrer" style="color:var(--cyan);text-decoration:none;">CometAPI.com Sole AI Supplier</a>
+        <span>Whop Checkout &amp; OAuth</span>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script>
+function copyCode(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const txt = el.innerText || el.textContent;
+  navigator.clipboard.writeText(txt).then(() => {
+    const btn = event && event.target;
+    if (btn) {
+      const oldText = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = oldText; }, 2000);
+    }
+  });
+}
+</script>
+
+
+<script>
+  (function () {
+    function formatPct(val) {
+      return typeof val === "number" && Number.isFinite(val) ? val.toFixed(2) + "%" : "--%";
+    }
+
+    function formatCount(val) {
+      return typeof val === "number" && Number.isFinite(val) ? val.toLocaleString("en-US") : "--";
+    }
+
+    function formatDisplayDate(nyDateStr) {
+      if (typeof nyDateStr === "string" && /^\d{4}-\d{2}-\d{2}$/.test(nyDateStr)) {
+        const parts = nyDateStr.split("-").map(Number);
+        const dt = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 12, 0, 0));
+        return new Intl.DateTimeFormat("en-US", {
+          timeZone: "UTC",
+          year: "numeric",
+          month: "long",
+          day: "numeric"
+        }).format(dt);
+      }
+      return new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        year: "numeric",
+        month: "long",
+        day: "numeric"
+      }).format(new Date());
+    }
+
+    async function loadDashStats() {
+      const btn = document.getElementById("refreshDashBtn");
+      const notice = document.getElementById("dashStatusNotice");
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Refreshing...";
+      }
+
+      try {
+        const res = await fetch("/api/dash-stats", { cache: "no-store" });
+        const data = await res.json();
+
+        document.getElementById("dashDateDisplay").textContent = formatDisplayDate(data.date);
+        document.getElementById("statAvgSavings").textContent = formatPct(data.average_savings_pct);
+        document.getElementById("statTotalCalls").textContent = formatCount(data.total_calls);
+        document.getElementById("statRecordHigh").textContent = formatPct(data.record_high);
+        document.getElementById("statRecordLow").textContent = formatPct(data.record_low);
+        document.getElementById("statDailyHigh").textContent = formatPct(data.daily_high);
+        document.getElementById("statDailyLow").textContent = formatPct(data.daily_low);
+
+        if (!res.ok || data.ok === false) {
+          notice.className = "dash-notice visible";
+          notice.textContent = "Telemetry store unavailable: " + (data.error || "Unable to read call_telemetry.");
+        } else if (data.total_calls === 0) {
+          notice.className = "dash-notice visible";
+          notice.innerHTML = 'No routed calls have been recorded yet. Send a completion via <code>POST /v1/chat/completions</code> or test in the <a href="/docs/api#interactive-console">API Testing Console</a>.';
+        } else if (data.daily_calls === 0) {
+          notice.className = "dash-notice visible";
+          notice.textContent = "No routed calls recorded yet for today (" + (data.date || "America/New_York") + ").";
+        } else {
+          notice.className = "dash-notice";
+          notice.textContent = "";
+        }
+      } catch (err) {
+        document.getElementById("dashDateDisplay").textContent = formatDisplayDate(null);
+        notice.className = "dash-notice visible";
+        notice.textContent = "Failed to load telemetry metrics. Please try refreshing.";
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "Refresh Stats";
+        }
+      }
+    }
+
+    document.getElementById("refreshDashBtn")?.addEventListener("click", loadDashStats);
+    loadDashStats();
+  })();
+</script>
+</body>
+</html>

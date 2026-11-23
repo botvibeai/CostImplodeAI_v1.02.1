@@ -25,6 +25,9 @@ assert(!html.includes("__CF$cv"), "Cloudflare challenge snippet should not be im
 assert(!html.includes("<strong>Cloudflare</strong> Edge"), "Cloudflare marketing copy still present in trust strip");
 assert(html.includes("/costimplode-mark.png"), "Square mark should be wired into homepage");
 assert(html.includes("/costimplode-social.jpg"), "Social image should use wordmark asset");
+assert(!html.includes("$999+"), "Legacy $999+ price should be removed from homepage");
+assert(html.includes('<div class="plan-name">Agency</div>'), "Agency tier should be present on homepage");
+assert(html.includes("openSetupModal('Agency')"), "Agency checkout button should be present on homepage");
 
 const sitemap = await readFile(path.join(publicDir, "sitemap.xml"), "utf8");
 for (const expectedLoc of ["/docs/byok", "/docs/keys", "/docs/api", "/privacy.html", "/terms.html", "/compliance.html"]) {
@@ -67,6 +70,12 @@ assert(askQuestion.includes('url: "https://www.cometapi.com/?ref=gcp"'), "Missin
 
 const keysPage = await readFile(path.join(publicDir, "docs/keys.html"), "utf8");
 assert(keysPage.includes("/api/v1/keys/rotate"), "/docs/keys.html missing key rotation endpoint documentation");
+
+const dashPage = await readFile(path.join(publicDir, "dash.html"), "utf8");
+assert(dashPage.includes("CostImplodeAI"), "/dash.html missing CostImplodeAI branding");
+assert(dashPage.includes("Measured from real routed calls."), "/dash.html missing required footnote");
+assert(dashPage.includes("/api/dash-stats"), "/dash.html missing /api/dash-stats fetch");
+assert(sitemap.includes("https://costimplodeai.com/dash"), "sitemap.xml missing /dash");
 
 const auth = await readFile(path.join(publicDir, "auth.md"), "utf8");
 assert(auth.startsWith("# auth.md"), "auth.md must start with H1");
